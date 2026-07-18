@@ -1,12 +1,29 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=370">
   <title>FormPilot</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div id="app">FormPilot</div>
+
+  <!-- Status Bar -->
+  <div class="status-bar" id="statusBar">
+    <span class="status-text" id="statusText">4 fields detected</span>
+    <button class="settings-link" id="settingsBtn" title="Open settings">⚙</button>
+  </div>
+
+  <!-- Action Zone -->
+  <div class="action-zone" id="actionZone">
+    <button class="btn-autofill" id="autofillBtn">Autofill this page</button>
+  </div>
+
+  <!-- Log Zone -->
+  <div class="log-zone" id="logZone">
+    <p class="log-line" id="logLine">3 filled · 1 needs review</p>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

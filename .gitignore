@@ -1,0 +1,9 @@
+# FormPilot — root gitignore
+.formpilot-roadmap.md
+backend/.env
+backend/venv/
+backend/.venv/
+backend/__pycache__/
+backend/*.pyc
+backend/formpilot.db
+node_modules/
