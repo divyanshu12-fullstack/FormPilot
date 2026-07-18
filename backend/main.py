@@ -12,10 +12,9 @@ from db import engine, profile, resume, init_db
 
 app = FastAPI(title="FormPilot API")
 
-# Return here after Step 2.3 to replace <EXTENSION_ID> with the real ID
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["chrome-extension://<EXTENSION_ID>"],
+    allow_origins=["chrome-extension://nefbcnjmameakekdalabahboffpghejm"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
