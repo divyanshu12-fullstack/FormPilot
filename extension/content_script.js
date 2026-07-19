@@ -38,6 +38,41 @@ function debounce(fn, delay) {
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
 }
 
+function injectHighlightStyles() {
+  if (document.getElementById('formpilot-highlight-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'formpilot-highlight-styles';
+  style.textContent = `
+    [data-formpilot-highlight] {
+      transition: outline 0.3s ease-out, background-color 0.3s ease-out, box-shadow 0.3s ease-out !important;
+    }
+    [data-formpilot-highlight="high"] {
+      outline: 2px solid #2d8a4e !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 8px rgba(45, 138, 78, 0.4) !important;
+    }
+    [data-formpilot-highlight="medium"] {
+      outline: 2px solid #c4930a !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 8px rgba(196, 147, 10, 0.4) !important;
+    }
+    [data-formpilot-highlight="draft"] {
+      outline: 2px solid #2b6cb0 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 8px rgba(43, 108, 176, 0.4) !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function applyHighlight(el, level = 'high') {
+  if (!el) return;
+  el.setAttribute('data-formpilot-highlight', level);
+  setTimeout(() => {
+    el.removeAttribute('data-formpilot-highlight');
+  }, 4500);
+}
+
 // ═══════════════════════════════════════
 // PLATFORM DETECTION
 // ═══════════════════════════════════════
@@ -479,24 +514,29 @@ function getProfileValue(type, profile) {
   return profile[type] || '';
 }
 
-function matchField(field, profile) {
+function matchField(field, profile, corrections = {}) {
   const section = field.sectionContext.toLowerCase();
   for (const skip of SKIP_SECTIONS) {
     if (section.includes(skip)) return null;
   }
 
-  // 1. Check signatures
+  // Normalize label
+  let label = (field.labelText || field.placeholder || field.ariaLabel || '').toLowerCase();
+  label = label.replace(/\xa0/g, ' ').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+
+  // 1. Check corrections FIRST
+  if (corrections && corrections[label] !== undefined) {
+    return { type: 'correction', value: corrections[label] };
+  }
+
+  // 2. Check signatures
   for (const [sig, type] of Object.entries(FIELD_SIGNATURES)) {
     if (field.name === sig || field.id === sig) {
       return { type, value: getProfileValue(type, profile) };
     }
   }
 
-  // 2. Keyword mapping
-  let label = (field.labelText || field.placeholder || field.ariaLabel || '').toLowerCase();
-  // Normalize non-breaking spaces and strip asterisks
-  label = label.replace(/\xa0/g, ' ').replace(/\*/g, '').trim();
-
+  // 3. Keyword mapping
   for (const [type, keywords] of Object.entries(FIELD_KEYWORDS)) {
     for (const kw of keywords) {
       if (label === kw || label.includes(` ${kw} `) || label.startsWith(`${kw} `) || label.endsWith(` ${kw}`)) {
@@ -595,23 +635,129 @@ async function fillField(field, matchData) {
     if (field.widgetRole === 'radiogroup' || field.widgetRole === 'checkboxgroup') {
       const matched = fuzzyMatchOption(field.options, val, matchData.type);
       if (matched) {
-        const rEl = el.querySelector(`[data-value="${CSS.escape(matched.value)}"], [value="${CSS.escape(matched.value)}"], [role="radio"]:not([data-value]), [role="checkbox"]:not([data-value])`);
-        // If no data-value, we need to find by text content again
-        if (rEl) {
-           rEl.click();
-           return true;
-        } else {
-           // fallback click search
-           const allChildren = el.querySelectorAll('[role="radio"], [role="checkbox"], input[type="radio"], input[type="checkbox"]');
-           for(let child of allChildren) {
-             const lbl = resolveLabel(child);
-             if (lbl === matched.text) { child.click(); return true; }
-           }
+        // Strategy 1: Find by data-value attribute
+        const byDataValue = el.querySelector(`[data-value="${CSS.escape(matched.value)}"]`);
+        if (byDataValue) {
+          byDataValue.click();
+          return true;
+        }
+
+        // Strategy 2: Find by value attribute (standard HTML radio/checkbox)
+        const byValue = el.querySelector(`[value="${CSS.escape(matched.value)}"]`);
+        if (byValue) {
+          byValue.click();
+          return true;
+        }
+
+        // Strategy 3: Match by text content (Google Forms uses divs with role="radio")
+        const allClickables = el.querySelectorAll('[role="radio"], [role="checkbox"], input[type="radio"], input[type="checkbox"]');
+        for (const child of allClickables) {
+          const childText = child.textContent.trim().toLowerCase();
+          const matchText = matched.text.toLowerCase();
+          if (childText === matchText || childText.includes(matchText) || matchText.includes(childText)) {
+            child.click();
+            return true;
+          }
+        }
+
+        // Strategy 4: Google Forms wraps radio options in label-like containers
+        // Walk siblings to find the clickable area near the matching text
+        const allLabels = el.querySelectorAll('[data-value], span, label');
+        for (const lbl of allLabels) {
+          const lblText = lbl.textContent.trim().toLowerCase();
+          if (lblText === matched.text.toLowerCase()) {
+            // Click the element itself or its closest clickable ancestor
+            const clickTarget = lbl.closest('[role="radio"], [role="checkbox"]') || lbl;
+            clickTarget.click();
+            return true;
+          }
         }
       }
     }
   }
   return false;
+}
+
+// ═══════════════════════════════════════
+// CORRECTIONS DETECTOR
+// ═══════════════════════════════════════
+
+const filledFieldsMap = new WeakMap();
+
+function isSensitiveField(label) {
+  const lower = label.toLowerCase();
+  for (const kw of SENSITIVE_FIELD_KEYWORDS) {
+    if (lower.includes(kw)) return true;
+  }
+  return false;
+}
+
+function sendCorrection(label, value) {
+  chrome.runtime.sendMessage({
+    action: 'save_correction',
+    field_label: label,
+    corrected_value: value
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error('[FormPilot] Failed to send correction message:', chrome.runtime.lastError);
+      return;
+    }
+    if (response && response.success) {
+      console.log(`[FormPilot] Correction saved via proxy: "${label}" -> "${value}"`);
+    } else {
+      console.error('[FormPilot] Failed to save correction via proxy:', response?.error);
+    }
+  });
+}
+
+function trackFieldCorrections(field, filledValue) {
+  const el = field.element;
+  
+  let label = (field.labelText || field.placeholder || field.ariaLabel || '').toLowerCase();
+  label = label.replace(/\xa0/g, ' ').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+  if (!label) return;
+
+  // Never track sensitive fields
+  if (isSensitiveField(label)) {
+    console.log(`[FormPilot] Skipping sensitive field: "${label}"`);
+    return;
+  }
+
+  // Skip password-type inputs regardless of label
+  if (el.type === 'password') return;
+
+  filledFieldsMap.set(el, { label, filledValue });
+
+  if (el.dataset.formpilotTracked) return;
+  el.dataset.formpilotTracked = 'true';
+
+  const handler = () => {
+    let currentValue = '';
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+      currentValue = el.value;
+    } else {
+      if (el.getAttribute('role') === 'listbox' || el.getAttribute('role') === 'combobox') {
+        currentValue = el.getAttribute('data-value') || el.textContent.trim();
+      } else if (el.getAttribute('role') === 'radiogroup' || el.getAttribute('role') === 'group') {
+        const checked = el.querySelector('[aria-checked="true"], input[type="radio"]:checked, input[type="checkbox"]:checked');
+        currentValue = checked ? (checked.getAttribute('data-value') || checked.value || checked.textContent.trim()) : '';
+      }
+    }
+
+    const tracked = filledFieldsMap.get(el);
+    if (tracked && currentValue && currentValue !== tracked.filledValue) {
+      tracked.filledValue = currentValue;
+      filledFieldsMap.set(el, tracked);
+      sendCorrection(tracked.label, currentValue);
+    }
+  };
+
+  el.addEventListener('blur', handler);
+  el.addEventListener('change', handler);
+  // For custom widgets (radio/checkbox divs), also listen for click since blur/change don't fire
+  if (el.getAttribute('role') === 'radiogroup' || el.getAttribute('role') === 'group') {
+    el.addEventListener('click', handler);
+  }
 }
 
 // ═══════════════════════════════════════
@@ -645,14 +791,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     const fields = collectFields();
     let matchedCount = 0;
-    let needsReviewCount = 0;
+    const corrections = message.corrections || {};
 
     (async () => {
       for (const field of fields) {
-        const match = matchField(field, message.profile);
+        const match = matchField(field, message.profile, corrections);
         if (match) {
            const success = await fillField(field, match);
-           if (success) matchedCount++;
+           if (success) {
+             matchedCount++;
+             trackFieldCorrections(field, match.value);
+             applyHighlight(field.element, 'high'); // all current matches are high confidence
+           }
+        }
+      }
+
+      // Track UNFILLED fields too — learn from manual user input
+      for (const field of fields) {
+        if (!filledFieldsMap.has(field.element)) {
+          trackFieldCorrections(field, '');
         }
       }
       
@@ -675,6 +832,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 (function init() {
   currentPlatform = detectPlatform();
   console.log(`[FormPilot] Platform: ${currentPlatform}`);
+  injectHighlightStyles();
 
   collectFields();
   console.log(`[FormPilot] Initial scan: ${cachedFields.length} fields`);

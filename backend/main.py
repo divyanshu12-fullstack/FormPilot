@@ -8,7 +8,11 @@ import pdfplumber
 import docx
 from sqlalchemy import select, insert, update
 
-from db import engine, profile, resume, init_db
+from db import engine, profile, resume, corrections, init_db
+
+class CorrectionRequest(BaseModel):
+    field_label: str
+    corrected_value: str
 
 app = FastAPI(title="FormPilot API")
 
@@ -130,9 +134,29 @@ def upload_resume(file: UploadFile = File(...)):
             conn.execute(stmt)
             conn.commit()
             status = "created"
-            
     return {
         "status": status,
         "filename": filename,
         "raw_text_preview": raw_text[:200] + "..." if len(raw_text) > 200 else raw_text
     }
+
+@app.post("/corrections")
+def upsert_correction(data: CorrectionRequest):
+    with engine.connect() as conn:
+        query = select(corrections).where(corrections.c.field_label == data.field_label)
+        exists = conn.execute(query).first()
+        if exists:
+            stmt = update(corrections).where(corrections.c.field_label == data.field_label).values(corrected_value=data.corrected_value)
+        else:
+            stmt = insert(corrections).values(field_label=data.field_label, corrected_value=data.corrected_value)
+        conn.execute(stmt)
+        conn.commit()
+        return {"status": "saved", "field_label": data.field_label, "corrected_value": data.corrected_value}
+
+@app.get("/corrections")
+def get_corrections():
+    with engine.connect() as conn:
+        query = select(corrections)
+        result = conn.execute(query).mappings().all()
+        return {r["field_label"]: r["corrected_value"] for r in result}
+

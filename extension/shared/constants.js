@@ -112,5 +112,16 @@ const SKIP_SECTIONS = [
   'supervisor'
 ];
 
+// Fields that should NEVER be saved to corrections or sent to LLM
+const SENSITIVE_FIELD_KEYWORDS = [
+  'password', 'passwd', 'pass',
+  'card number', 'card no', 'credit card', 'debit card',
+  'cvv', 'cvc', 'security code',
+  'ssn', 'social security',
+  'bank account', 'account number', 'routing number',
+  'pin', 'secret', 'token',
+  'otp', 'verification code'
+];
+
 
 
