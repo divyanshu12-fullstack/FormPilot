@@ -26,5 +26,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // Keep channel open for async response
   }
+  
+  if (message.action === 'match_fields') {
+    fetch(`${API_BASE}/match-field`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        unmatched_labels: message.unmatched_labels
+      })
+    })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      return res.json();
+    })
+    .then(data => {
+      sendResponse({ success: true, mappings: data.mappings });
+    })
+    .catch(err => {
+      console.error('[FormPilot Service Worker] Failed to match fields:', err);
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
   return false;
 });

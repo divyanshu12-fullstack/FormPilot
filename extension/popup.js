@@ -111,8 +111,18 @@ autofillBtn.addEventListener('click', async () => {
       console.warn('Failed to fetch corrections:', e);
     }
 
+    let resume = {};
+    try {
+      const resRes = await fetch(`${API_BASE}/resume`, { method: 'GET' });
+      if (resRes.ok) {
+        resume = await resRes.json();
+      }
+    } catch (e) {
+      console.warn('Failed to fetch resume:', e);
+    }
+
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile, corrections }, (response) => {
+    chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile, corrections, resume }, (response) => {
       if (chrome.runtime.lastError) {
         showError('Could not connect to this page. Try refreshing.');
         return;

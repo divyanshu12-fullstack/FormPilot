@@ -39,6 +39,7 @@ resume = Table(
     Column("id", Integer, primary_key=True),
     Column("filename", String, nullable=True),
     Column("raw_text", Text, nullable=False),
+    Column("structured_json", Text, nullable=True),
     Column("uploaded_at", DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc)),
 )
 

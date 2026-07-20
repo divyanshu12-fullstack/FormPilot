@@ -794,6 +794,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const corrections = message.corrections || {};
 
     (async () => {
+      const unmatchedFields = [];
+      const unmatchedLabels = [];
+
+      // 1. Heuristic & Correction Phase
       for (const field of fields) {
         const match = matchField(field, message.profile, corrections);
         if (match) {
@@ -801,8 +805,77 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
            if (success) {
              matchedCount++;
              trackFieldCorrections(field, match.value);
-             applyHighlight(field.element, 'high'); // all current matches are high confidence
+             applyHighlight(field.element, 'high');
            }
+        } else {
+           // Skip sensitive fields from LLM fallback
+           let label = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
+           if (label && !isSensitiveField(label) && field.element.type !== 'password') {
+             unmatchedFields.push(field);
+             unmatchedLabels.push(label);
+           }
+        }
+      }
+
+      // 2. LLM Fallback Phase
+      if (unmatchedLabels.length > 0) {
+        console.log(`[FormPilot] Requesting LLM mapping for ${unmatchedLabels.length} fields:`, unmatchedLabels);
+        try {
+          const llmResp = await new Promise(resolve => {
+            chrome.runtime.sendMessage({ action: 'match_fields', unmatched_labels: unmatchedLabels }, resolve);
+          });
+          
+          if (llmResp && llmResp.success && llmResp.mappings) {
+            console.log('[FormPilot] LLM Mappings Result:', llmResp.mappings);
+            const mappings = llmResp.mappings;
+            
+            for (const field of unmatchedFields) {
+              let label = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
+              const mappedKey = mappings[label];
+              
+              if (mappedKey === null || mappedKey === 'null') {
+                 console.log(`[FormPilot] Skipping field "${label}" as it was mapped to null (Requires Phase 7 drafting).`);
+                 continue;
+              }
+
+              if (mappedKey) {
+                let valueToFill = '';
+                if (mappedKey.startsWith('profile.') && message.profile) {
+                  const key = mappedKey.split('.')[1];
+                  valueToFill = message.profile[key];
+                  console.log(`[FormPilot] Mapping "${label}" -> profile.${key} = "${valueToFill}"`);
+                } else if (mappedKey.startsWith('resume.') && message.resume) {
+                  const key = mappedKey.split('.')[1];
+                  const resumeVals = message.resume[key];
+                  if (Array.isArray(resumeVals)) {
+                    valueToFill = resumeVals.join('\n'); // Draft long answer
+                  } else {
+                    valueToFill = resumeVals;
+                  }
+                  console.log(`[FormPilot] Mapping "${label}" -> resume.${key} = [Extracted Content length: ${valueToFill ? valueToFill.length : 0}]`);
+                }
+                
+                if (valueToFill) {
+                   const match = { value: valueToFill, type: 'llm' };
+                   const success = await fillField(field, match);
+                   if (success) {
+                     matchedCount++;
+                     trackFieldCorrections(field, valueToFill);
+                     applyHighlight(field.element, mappedKey.startsWith('resume.') ? 'draft' : 'medium');
+                     console.log(`[FormPilot] Successfully filled "${label}" using LLM Fallback.`);
+                   } else {
+                     console.warn(`[FormPilot] Failed to fill "${label}" in the DOM.`);
+                   }
+                } else {
+                   console.log(`[FormPilot] No data found in profile/resume for key: ${mappedKey}`);
+                }
+              }
+            }
+          } else {
+             console.error('[FormPilot] Invalid response from match_fields proxy:', llmResp);
+          }
+        } catch (e) {
+          console.error('[FormPilot] LLM Fallback failed:', e);
         }
       }
 
