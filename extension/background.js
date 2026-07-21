@@ -50,5 +50,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+  if (message.action === 'draft_answer') {
+    fetch(`${API_BASE}/draft-answer`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        questions: message.questions,
+        user_context: message.user_context,
+        use_profile: message.use_profile
+      })
+    })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      return res.json();
+    })
+    .then(data => {
+      sendResponse({ success: true, drafts: data.drafts });
+    })
+    .catch(err => {
+      console.error('[FormPilot Service Worker] Failed to draft answer:', err);
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
   return false;
 });

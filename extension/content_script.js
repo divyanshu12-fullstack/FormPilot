@@ -65,12 +65,27 @@ function injectHighlightStyles() {
   document.head.appendChild(style);
 }
 
+let fpSettings = { highlightDuration: 3, autoDraftMode: false };
+
+chrome.storage.sync.get({ highlightDuration: 3, autoDraftMode: false }, (items) => {
+  fpSettings = items;
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync') {
+    if (changes.highlightDuration) fpSettings.highlightDuration = changes.highlightDuration.newValue;
+    if (changes.autoDraftMode) fpSettings.autoDraftMode = changes.autoDraftMode.newValue;
+  }
+});
+
 function applyHighlight(el, level = 'high') {
   if (!el) return;
   el.setAttribute('data-formpilot-highlight', level);
-  setTimeout(() => {
-    el.removeAttribute('data-formpilot-highlight');
-  }, 4500);
+  const ms = fpSettings.highlightDuration * 1000;
+  if (ms > 0 && ms <= 10000) { // If > 10s or 0, infinite (don't clear)
+    setTimeout(() => {
+      el.removeAttribute('data-formpilot-highlight');
+    }, ms);
+  }
 }
 
 // ═══════════════════════════════════════
@@ -304,7 +319,7 @@ function buildFieldObj(el, labelText, isCustom, widgetRole) {
 // ADAPTER: GENERIC (standard HTML forms, ATS platforms)
 // ═══════════════════════════════════════
 
-const SKIP_TYPES = new Set(['hidden', 'submit', 'reset', 'button', 'image', 'file']);
+const SKIP_TYPES = new Set(['hidden', 'submit', 'reset', 'button', 'image', 'file', 'date', 'datetime-local', 'month', 'time', 'week']);
 
 const GenericAdapter = {
   collectFields() {
@@ -379,13 +394,6 @@ const GFormsAdapter = {
         text: cb.textContent.trim(),
       }));
       fields.push(field);
-    }
-
-    // 5. Date inputs
-    for (const el of document.querySelectorAll('input[type="date"]')) {
-      if (!isVisible(el) || seen.has(el)) continue;
-      seen.add(el);
-      fields.push(buildFieldObj(el, resolveGFormsLabel(el), false, ''));
     }
 
     return fields;
@@ -834,7 +842,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const mappedKey = mappings[label];
               
               if (mappedKey === null || mappedKey === 'null') {
-                 console.log(`[FormPilot] Skipping field "${label}" as it was mapped to null (Requires Phase 7 drafting).`);
+                 if (fpSettings.autoDraftMode) {
+                   console.log(`[FormPilot] Auto-drafting field "${label}"...`);
+                   try {
+                     chrome.runtime.sendMessage({
+                        action: 'draft_answer',
+                        questions: [label],
+                        user_context: '',
+                        use_profile: true
+                     }, async (resp) => {
+                        if (resp && resp.success && resp.drafts && resp.drafts[label]) {
+                          const draftedText = resp.drafts[label];
+                          await fillField(field, { value: draftedText, type: 'llm' });
+                          applyHighlight(field.element, 'draft');
+                        }
+                     });
+                   } catch (e) {
+                     console.error('[FormPilot] Auto-draft failed for', label, e);
+                   }
+                 } else {
+                   console.log(`[FormPilot] Skipping field "${label}" as it was mapped to null (Requires Phase 7 drafting).`);
+                   injectSparkleIcon(field, label);
+                 }
                  continue;
               }
 
@@ -895,8 +924,141 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async response
   }
 
+  if (message.action === 'scroll_to_review') {
+    const el = document.querySelector('[data-formpilot-highlight="medium"], [data-formpilot-highlight="draft"], .formpilot-sparkle');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Blink effect
+      const origOutline = el.style.outline;
+      el.style.outline = '3px solid #ae6a97';
+      setTimeout(() => el.style.outline = origOutline, 1500);
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
   return false;
 });
+
+let currentDraftField = null;
+
+function createDraftDialog() {
+  if (document.getElementById('formpilot-draft-dialog')) return;
+  
+  const dialog = document.createElement('div');
+  dialog.id = 'formpilot-draft-dialog';
+  dialog.style.position = 'absolute';
+  dialog.style.zIndex = '10000';
+  dialog.style.display = 'none';
+  dialog.style.backgroundColor = '#f8f0ea';
+  dialog.style.border = '2px solid #ae6a97';
+  dialog.style.borderRadius = '8px';
+  dialog.style.padding = '12px';
+  dialog.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+  dialog.style.width = '300px';
+  dialog.style.fontFamily = 'sans-serif';
+  
+  dialog.innerHTML = `
+    <div style="font-weight: bold; color: #ae6a97; margin-bottom: 8px; font-size: 14px;" id="formpilot-draft-label">Question</div>
+    <textarea id="formpilot-draft-context" style="width: 100%; height: 60px; border: 1px solid #eca8bb; border-radius: 4px; padding: 4px; font-size: 13px; margin-bottom: 8px; box-sizing: border-box;" placeholder="e.g. I was preparing for JEE exams, add this in formal tone in 2-3 lines"></textarea>
+    <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 8px; color: #333; cursor: pointer;">
+      <input type="checkbox" id="formpilot-draft-profile" checked style="margin-right: 4px;"> Include my profile/resume context
+    </label>
+    <div style="display: flex; justify-content: flex-end; gap: 8px;">
+      <button id="formpilot-draft-cancel" style="background: transparent; border: none; color: #666; cursor: pointer; font-size: 13px;">Cancel</button>
+      <button id="formpilot-draft-submit" style="background: #ae6a97; color: white; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 13px; font-weight: bold;">Draft with AI</button>
+    </div>
+  `;
+  document.body.appendChild(dialog);
+  
+  document.getElementById('formpilot-draft-cancel').addEventListener('click', (e) => {
+    e.preventDefault();
+    dialog.style.display = 'none';
+  });
+  
+  document.getElementById('formpilot-draft-submit').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const btn = e.target;
+    const context = document.getElementById('formpilot-draft-context').value;
+    const useProfile = document.getElementById('formpilot-draft-profile').checked;
+    const label = document.getElementById('formpilot-draft-label').textContent;
+    
+    btn.textContent = 'Drafting...';
+    btn.disabled = true;
+    
+    try {
+      const resp = await new Promise(resolve => {
+        chrome.runtime.sendMessage({
+          action: 'draft_answer',
+          questions: [label],
+          user_context: context,
+          use_profile: useProfile
+        }, resolve);
+      });
+      
+      if (resp && resp.success && resp.drafts && resp.drafts[label]) {
+        const draftedText = resp.drafts[label];
+        if (currentDraftField) {
+           await fillField(currentDraftField, { value: draftedText, type: 'llm' });
+           applyHighlight(currentDraftField.element, 'draft');
+           dialog.style.display = 'none';
+           const sparkles = document.querySelectorAll('.formpilot-sparkle');
+           sparkles.forEach(s => {
+             if (s.fieldRef === currentDraftField) s.style.display = 'none';
+           });
+        }
+      } else {
+        alert('FormPilot: Failed to draft answer.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('FormPilot: Error drafting answer.');
+    } finally {
+      btn.textContent = 'Draft with AI';
+      btn.disabled = false;
+    }
+  });
+}
+
+function injectSparkleIcon(field, label) {
+  if (field.element.dataset.fpSparkle) return;
+  field.element.dataset.fpSparkle = 'true';
+  
+  const rect = field.element.getBoundingClientRect();
+  const sparkle = document.createElement('div');
+  sparkle.className = 'formpilot-sparkle';
+  sparkle.textContent = '✨';
+  sparkle.style.position = 'absolute';
+  sparkle.style.left = (rect.right - 24 + window.scrollX) + 'px';
+  sparkle.style.top = (rect.top + window.scrollY + (rect.height / 2) - 10) + 'px';
+  sparkle.style.cursor = 'pointer';
+  sparkle.style.zIndex = '9999';
+  sparkle.style.fontSize = '16px';
+  sparkle.style.transition = 'transform 0.2s';
+  sparkle.fieldRef = field; 
+  
+  sparkle.addEventListener('mouseenter', () => sparkle.style.transform = 'scale(1.2)');
+  sparkle.addEventListener('mouseleave', () => sparkle.style.transform = 'scale(1)');
+  
+  sparkle.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    currentDraftField = field;
+    const dialog = document.getElementById('formpilot-draft-dialog');
+    document.getElementById('formpilot-draft-label').textContent = label;
+    document.getElementById('formpilot-draft-context').value = '';
+    
+    const sRect = sparkle.getBoundingClientRect();
+    // Position dialog relative to sparkle, ensure it doesn't go off left screen
+    let dLeft = sRect.left + window.scrollX - 280;
+    if (dLeft < 10) dLeft = 10;
+    dialog.style.left = dLeft + 'px';
+    dialog.style.top = (sRect.bottom + window.scrollY + 5) + 'px';
+    dialog.style.display = 'block';
+  });
+  
+  document.body.appendChild(sparkle);
+}
 
 // ═══════════════════════════════════════
 // INIT
@@ -906,6 +1068,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   currentPlatform = detectPlatform();
   console.log(`[FormPilot] Platform: ${currentPlatform}`);
   injectHighlightStyles();
+  createDraftDialog();
 
   collectFields();
   console.log(`[FormPilot] Initial scan: ${cachedFields.length} fields`);

@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;600&display=swap');
 
-/* ── Design Tokens ── */
+/* ── Design Tokens (Light) ── */
 :root {
   --color-bg: #f8f0ea;
   --color-surface: #eca8bb;
@@ -9,6 +9,8 @@
   --color-primary-hover: #9a5c85;
   --color-disabled: #b89aad;
   --color-error: #6b1d3a;
+  --color-success: #2e7d32;
+  --color-card: #ffffff;
 
   --font-display: 'Inter', system-ui, sans-serif;
   --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -20,11 +22,29 @@
   --space-lg: 20px;
 }
 
+/* ── Dark Mode ── */
+:root[data-theme="dark"] {
+  --color-bg:            #1c1417;
+  --color-surface:       #2c1f26;
+  --color-primary:       #c98bb3;
+  --color-accent:        #f3e3ec;
+  --color-primary-hover: #d99ec1;
+  --color-disabled:      #5c4650;
+  --color-error:         #e8637f;
+  --color-success:       #2e7d32;
+  --color-card:          #2c1f26;
+}
+
 /* ── Reset ── */
 *, *::before, *::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 /* ── Body ── */
@@ -35,6 +55,7 @@ body {
   font-size: 12.5px;
   color: var(--color-accent);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s, color 0.3s;
 }
 
 /* ── Status Bar ── */
@@ -46,6 +67,16 @@ body {
   justify-content: space-between;
   border-left: 3px solid var(--color-primary);
   min-height: 42px;
+  transition: all 150ms ease;
+}
+
+.status-bar.error {
+  border-left-color: var(--color-error);
+  background: rgba(232, 99, 127, 0.1);
+}
+
+.status-bar.empty {
+  border-left-color: var(--color-disabled);
 }
 
 .status-text {
@@ -54,27 +85,32 @@ body {
   font-size: 13.5px;
   color: var(--color-accent);
   line-height: 1.3;
-  /* Prevent long page titles from blowing out the bar */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 300px;
 }
 
+.status-text.error {
+  color: var(--color-error);
+}
+
 .settings-link {
   background: none;
   border: none;
-  color: var(--color-accent);
-  font-size: 15px;
+  font-size: 16px;
   cursor: pointer;
-  padding: 2px;
-  line-height: 1;
-  flex-shrink: 0;
-  transition: color 0.15s ease;
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.2s;
 }
 
 .settings-link:hover {
-  color: var(--color-primary);
+  background: rgba(174, 106, 151, 0.15);
 }
 
 .settings-link:focus-visible {
@@ -93,21 +129,23 @@ body {
 
 .btn-autofill {
   width: 100%;
-  padding: 11px var(--space-md);
   background: var(--color-primary);
-  color: var(--color-bg);
+  color: white;
   border: none;
+  padding: 12px;
   border-radius: var(--radius-sm);
-  font-family: var(--font-display);
-  font-weight: 600;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease;
-  letter-spacing: 0.01em;
+  transition: background 0.2s, transform 0.1s;
 }
 
-.btn-autofill:hover:not(:disabled) {
+.btn-autofill:hover {
   background: var(--color-primary-hover);
+}
+
+.btn-autofill:active {
+  transform: scale(0.98);
 }
 
 .btn-autofill:focus-visible {
@@ -115,12 +153,28 @@ body {
   outline-offset: 2px;
 }
 
+.btn-autofill.loading::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 8px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+  vertical-align: middle;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .btn-autofill:disabled {
   background: var(--color-disabled);
   cursor: not-allowed;
 }
 
-/* ── Loading state: spinner inside button ── */
+/* ── Loading state ── */
 .btn-autofill.loading {
   position: relative;
   pointer-events: none;
@@ -144,7 +198,6 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* ── Action zone hidden state (no fields / backend down) ── */
 .action-zone.hidden {
   display: none;
 }
@@ -168,7 +221,6 @@ body {
   margin-top: 3px;
 }
 
-/* Secondary/nudge text */
 .log-nudge {
   font-size: 12px;
   color: var(--color-primary);
@@ -205,7 +257,22 @@ body {
   color: var(--color-error);
 }
 
-/* ── Empty state (no fields) ── */
+/* ── Empty state ── */
 .status-bar.empty {
   border-left-color: var(--color-disabled);
+}
+
+.log-line.empty {
+  color: var(--color-disabled);
+  font-style: italic;
+}
+
+.log-line a {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+.log-line a:hover {
+  text-decoration: underline;
 }

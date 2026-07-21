@@ -16,11 +16,33 @@ const settingsBtn = document.getElementById('settingsBtn');
 function showFieldsDetected(count) {
   statusBar.className = 'status-bar';
   statusText.className = 'status-text';
-  statusText.textContent = `${count} field${count !== 1 ? 's' : ''} detected`;
   actionZone.className = 'action-zone';
   autofillBtn.disabled = false;
   autofillBtn.className = 'btn-autofill';
   autofillBtn.textContent = 'Autofill this page';
+  
+  // Animate count up
+  let currentCount = 0;
+  const duration = 400; // ms
+  const startTime = performance.now();
+  
+  function updateCount(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // easeOutQuad
+    const easeProgress = progress * (2 - progress);
+    currentCount = Math.floor(easeProgress * count);
+    
+    statusText.textContent = `${currentCount} field${currentCount !== 1 ? 's' : ''} detected`;
+    
+    if (progress < 1) {
+      requestAnimationFrame(updateCount);
+    } else {
+      statusText.textContent = `${count} field${count !== 1 ? 's' : ''} detected`;
+    }
+  }
+  requestAnimationFrame(updateCount);
 }
 
 function showNoFields() {
@@ -34,8 +56,9 @@ function showNoFields() {
 function showLoading() {
   autofillBtn.disabled = true;
   autofillBtn.className = 'btn-autofill loading';
-  autofillBtn.textContent = 'Working on it…';
-  statusText.textContent = 'Filling…';
+  // CSS animated dots fallback, or simple text if no spinner
+  autofillBtn.textContent = 'Working on it...';
+  statusText.textContent = 'Filling...';
 }
 
 function showFillResult(matched, needsReview) {
@@ -53,7 +76,12 @@ function showFillResult(matched, needsReview) {
   autofillBtn.textContent = 'Autofill this page';
 
   if (needsReview > 0) {
-    logLine.textContent = `${matched} filled · ${needsReview} need${needsReview !== 1 ? '' : 's'} review`;
+    logLine.innerHTML = `${matched} filled · <a id="reviewBtn" href="#">${needsReview} need${needsReview !== 1 ? 's' : ''} review</a>`;
+    document.getElementById('reviewBtn').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      chrome.tabs.sendMessage(tab.id, { action: 'scroll_to_review' });
+    });
   } else {
     logLine.textContent = `${matched} field${matched !== 1 ? 's' : ''} filled`;
   }

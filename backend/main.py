@@ -291,3 +291,49 @@ def get_corrections():
         result = conn.execute(query).mappings().all()
         return {r["field_label"]: r["corrected_value"] for r in result}
 
+
+class DraftRequest(BaseModel):
+    questions: List[str]
+    user_context: Optional[str] = None
+    use_profile: bool = True
+
+@app.post("/draft-answer")
+async def draft_answer(req: DraftRequest):
+    if not req.questions:
+        return {"drafts": {}}
+
+    context_str = ""
+    if req.use_profile:
+        profile_data = get_profile()
+        resume_data = get_resume()
+        context_str = f"User Profile Context:\n{json.dumps(profile_data, indent=2)}\n\nUser Resume Context:\n{json.dumps(resume_data, indent=2)}\n\n"
+
+    if req.user_context:
+        context_str += f"Additional User Instructions/Context:\n{req.user_context}\n\n"
+
+    system_prompt = f"""You are a professional AI assistant helping a user fill out a job application, academic form, or registration form.
+Your task is to draft a concise, professional answer for each specific question provided.
+{context_str}
+CRITICAL INSTRUCTIONS:
+1. Write in a formal, professional tone in the first person ("I").
+2. Keep answers concise (1-3 sentences) unless the user context specifies otherwise.
+3. Only output a JSON object mapping the exact question string to your drafted answer string.
+4. If the question asks for something you absolutely cannot guess and the user didn't provide context for (e.g., a specific ID number), output "Please answer this manually."
+
+Return ONLY valid JSON.
+Example: {{"Why did your grades go down?": "I was facing health issues during semester 4 which impacted my grades, but I recovered in the following semester."}}
+"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": json.dumps(req.questions)}
+    ]
+
+    try:
+        llm_response = await call_openrouter(messages, response_format={"type": "json_object"})
+        cleaned_json = llm_response.replace('```json', '').replace('```', '').strip()
+        drafts = json.loads(cleaned_json)
+        return {"drafts": drafts}
+    except Exception as e:
+        print(f"Error drafting answers: {e}")
+        return {"drafts": {q: "Error generating draft" for q in req.questions}}

@@ -1,12 +1,202 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
   <title>FormPilot Settings</title>
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="options.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div id="app">FormPilot Settings</div>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">✈️ FormPilot</div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-tab="tab-profile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          Profile
+        </button>
+        <button class="nav-btn" data-tab="tab-resume">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Resume
+        </button>
+        <button class="nav-btn" data-tab="tab-preferences">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          Preferences
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-dot online" id="backend-dot"></div>
+        <span id="backend-status-text">Backend: Checking...</span>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      
+      <!-- Profile Tab -->
+      <section id="tab-profile" class="tab-pane active">
+        <header class="tab-header">
+          <h2>My Profile</h2>
+          <p>This core data is used for instant zero-latency autofills.</p>
+        </header>
+        <div class="content-card">
+          <form id="profile-form">
+            
+            <fieldset>
+              <legend>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                Contact
+              </legend>
+              <div class="form-grid">
+                <div class="form-group"><label>First Name</label><input type="text" name="first_name"></div>
+                <div class="form-group"><label>Last Name</label><input type="text" name="last_name"></div>
+                <div class="form-group"><label>Email</label><input type="email" name="email"></div>
+                <div class="form-group"><label>Phone</label><input type="text" name="phone"></div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                Location
+              </legend>
+              <div class="form-grid">
+                <div class="form-group full-width"><label>Address Line 1</label><input type="text" name="address_line1" placeholder="e.g. 123 Main St"></div>
+                <div class="form-group"><label>City</label><input type="text" name="city" placeholder="e.g. Bhopal"></div>
+                <div class="form-group"><label>State</label><input type="text" name="state" placeholder="e.g. Madhya Pradesh"></div>
+                <div class="form-group"><label>Pincode / Zip</label><input type="text" name="pincode" placeholder="e.g. 462003"></div>
+                <div class="form-group"><label>Country</label><input type="text" name="country" placeholder="e.g. India"></div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                Professional Links
+              </legend>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>LinkedIn URL</label>
+                  <svg class="input-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
+                  <input type="text" name="linkedin_url" class="has-icon" placeholder="https://linkedin.com/in/...">
+                </div>
+                <div class="form-group">
+                  <label>GitHub URL</label>
+                  <svg class="input-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                  <input type="text" name="github_url" class="has-icon" placeholder="https://github.com/...">
+                </div>
+                <div class="form-group full-width">
+                  <label>Portfolio URL</label>
+                  <svg class="input-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                  <input type="text" name="portfolio_url" class="has-icon" placeholder="https://...">
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                Work Details
+              </legend>
+              <div class="form-grid">
+                <div class="form-group"><label>Current Title</label><input type="text" name="current_title"></div>
+                <div class="form-group"><label>Current Company</label><input type="text" name="current_company"></div>
+                <div class="form-group"><label>Years of Experience</label><input type="number" name="experience_years"></div>
+                <div class="form-group"><label>CGPA</label><input type="text" name="cgpa" placeholder="e.g. 9.01/10.00"></div>
+              </div>
+            </fieldset>
+            
+            <div class="sticky-save-bar">
+              <span id="profile-status" class="status-msg"></span>
+              <button type="submit" class="primary-btn" id="save-profile-btn">Save Profile</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Resume Tab -->
+      <section id="tab-resume" class="tab-pane">
+        <header class="tab-header">
+          <h2>Resume Import</h2>
+          <p>Upload a PDF/DOCX to generate dynamic answers via AI.</p>
+        </header>
+        <div class="content-card">
+          <div class="resume-status" id="resume-status-box">
+            <h3>Current Resume</h3>
+            <p id="resume-filename">Loading...</p>
+            <p class="resume-summary" id="resume-summary"></p>
+          </div>
+          
+          <div class="upload-area" id="drop-zone">
+            <h3>Upload New Resume</h3>
+            <p class="help-text">Extracts work history, education, skills, and projects dynamically.</p>
+            
+            <label class="custom-file-upload">
+              Choose File
+              <input type="file" id="resume-file" accept=".pdf,.docx">
+            </label>
+            <span id="selected-filename">No file chosen</span>
+            
+            <button class="primary-btn" id="upload-resume-btn" disabled style="display:block; margin: 0 auto;">Process Resume</button>
+            <p id="upload-status" class="status-msg" style="margin-top: 12px;"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Preferences Tab -->
+      <section id="tab-preferences" class="tab-pane">
+        <header class="tab-header">
+          <h2>Preferences</h2>
+          <p>Customize how FormPilot interacts with web pages.</p>
+        </header>
+        <div class="content-card">
+          <div class="pref-group">
+            <div class="pref-info">
+              <h3>Theme</h3>
+              <p>Toggle between Light and Dark mode for FormPilot.</p>
+            </div>
+            <div class="pref-control toggle-switch">
+              <input type="checkbox" id="theme-toggle">
+              <label for="theme-toggle" class="slider-round"></label>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="pref-group">
+            <div class="pref-info">
+              <h3>Highlight Duration</h3>
+              <p>How long should the green/plum borders remain on filled fields?</p>
+            </div>
+            <div class="pref-control">
+              <input type="range" id="highlight-slider" min="1" max="10" step="1" value="3">
+              <span id="highlight-val">3s</span>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="pref-group">
+            <div class="pref-info">
+              <h3>Auto-Draft Mode (Speed Mode)</h3>
+              <p>Skip the ✨ Sparkle icon. Automatically send all unanswered conversational fields to the LLM to draft answers in the background.</p>
+              <p style="color:var(--primary-color); font-weight: 500; font-size: 12px; margin-top: 4px;">(Note: Uses more OpenRouter calls per form)</p>
+            </div>
+            <div class="pref-control toggle-switch">
+              <input type="checkbox" id="auto-draft-toggle">
+              <label for="auto-draft-toggle" class="slider-round"></label>
+            </div>
+          </div>
+          
+        </div>
+      </section>
+
+    </main>
+  </div>
   <script src="options.js"></script>
 </body>
 </html>
