@@ -319,7 +319,16 @@ function buildFieldObj(el, labelText, isCustom, widgetRole) {
 // ADAPTER: GENERIC (standard HTML forms, ATS platforms)
 // ═══════════════════════════════════════
 
-const SKIP_TYPES = new Set(['hidden', 'submit', 'reset', 'button', 'image', 'file', 'date', 'datetime-local', 'month', 'time', 'week']);
+const SKIP_TYPES = new Set(['hidden', 'submit', 'reset', 'button', 'image', 'file']);
+
+function isDateField(field) {
+  if (!field || !field.element) return false;
+  const el = field.element;
+  const t = (el.type || '').toLowerCase();
+  if (['date', 'datetime-local', 'month', 'time', 'week'].includes(t)) return true;
+  if (el.classList && (el.classList.contains('hasDatepicker') || el.classList.contains('datepicker'))) return true;
+  return false;
+}
 
 const GenericAdapter = {
   collectFields() {
@@ -816,9 +825,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
              applyHighlight(field.element, 'high');
            }
         } else {
-           // Skip sensitive fields from LLM fallback
+           // Skip sensitive fields and date fields from LLM fallback
            let label = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
-           if (label && !isSensitiveField(label) && field.element.type !== 'password') {
+           if (label && !isSensitiveField(label) && field.element.type !== 'password' && !isDateField(field)) {
              unmatchedFields.push(field);
              unmatchedLabels.push(label);
            }
@@ -1021,6 +1030,8 @@ function createDraftDialog() {
 }
 
 function injectSparkleIcon(field, label) {
+  if (!field || !field.element) return;
+  if (isDateField(field)) return; // Never attach Sparkle icon to date/calendar fields
   if (field.element.dataset.fpSparkle) return;
   field.element.dataset.fpSparkle = 'true';
   
@@ -1066,16 +1077,10 @@ function injectSparkleIcon(field, label) {
 
 (function init() {
   currentPlatform = detectPlatform();
-  console.log(`[FormPilot] Platform: ${currentPlatform}`);
   injectHighlightStyles();
   createDraftDialog();
 
   collectFields();
-  console.log(`[FormPilot] Initial scan: ${cachedFields.length} fields`);
-  cachedFields.forEach((f, i) => {
-    console.log(`[FormPilot]  ${i + 1}. "${f.labelText}" type=${f.type} id="${f.id}" name="${f.name}" section="${f.sectionContext}" options=${f.options.length}`);
-  });
-
   domObserver.observe(document.body, { childList: true, subtree: true });
   checkForIframes();
 })();

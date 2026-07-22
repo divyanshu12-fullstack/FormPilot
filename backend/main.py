@@ -10,6 +10,7 @@ from pydantic import BaseModel
 import pdfplumber
 import docx
 from sqlalchemy import select, insert, update
+from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,10 +53,16 @@ async def call_openrouter(messages, response_format=None):
         
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60.0)
+            resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=45.0)
             resp.raise_for_status()
             data = resp.json()
+            if "choices" not in data or not data["choices"]:
+                raise HTTPException(status_code=502, detail="OpenRouter returned an empty choices array")
             return data["choices"][0]["message"]["content"]
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="OpenRouter API request timed out")
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"OpenRouter API error: {e.response.text}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"LLM call failed: {str(e)}")
 
@@ -90,30 +97,36 @@ def ping():
 
 @app.get("/profile")
 def get_profile():
-    with engine.connect() as conn:
-        query = select(profile).where(profile.c.id == 1)
-        result = conn.execute(query).mappings().first()
-        if result:
-            return dict(result)
-        return {}
+    try:
+        with engine.connect() as conn:
+            query = select(profile).where(profile.c.id == 1)
+            result = conn.execute(query).mappings().first()
+            if result:
+                return dict(result)
+            return {}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
 @app.post("/profile")
 def upsert_profile(data: ProfileSchema):
-    with engine.connect() as conn:
-        query = select(profile).where(profile.c.id == 1)
-        exists = conn.execute(query).first()
-        
-        values = data.model_dump()
-        if exists:
-            stmt = update(profile).where(profile.c.id == 1).values(**values)
-            conn.execute(stmt)
-            conn.commit()
-            return {"status": "updated", "data": values}
-        else:
-            stmt = insert(profile).values(id=1, **values)
-            conn.execute(stmt)
-            conn.commit()
-            return {"status": "created", "data": values}
+    try:
+        with engine.connect() as conn:
+            query = select(profile).where(profile.c.id == 1)
+            exists = conn.execute(query).first()
+            
+            values = data.model_dump()
+            if exists:
+                stmt = update(profile).where(profile.c.id == 1).values(**values)
+                conn.execute(stmt)
+                conn.commit()
+                return {"status": "updated", "data": values}
+            else:
+                stmt = insert(profile).values(id=1, **values)
+                conn.execute(stmt)
+                conn.commit()
+                return {"status": "created", "data": values}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database update error: {str(e)}")
 
 @app.post("/resume/upload")
 async def upload_resume(file: UploadFile = File(...)):
@@ -149,7 +162,7 @@ async def upload_resume(file: UploadFile = File(...)):
     if not raw_text.strip():
         raise HTTPException(status_code=400, detail="Could not extract any text from the resume.")
 
-    # Call LLM to structure the resume
+    # Call LLM to structure the resume ONLY if text was extracted
     system_prompt = """You are a precise resume parser. Extract the user's information from the provided resume text into a structured JSON object.
 The JSON must have this exact structure:
 {
@@ -160,8 +173,6 @@ The JSON must have this exact structure:
     "current_title": "str", "current_company": "str", "experience_years": "int"
   },
   "resume_sections": {
-    // Dynamically identify ALL sections in the resume (e.g., 'projects', 'certifications', 'summary', 'education', 'work_history', 'achievements', 'skills', etc.)
-    // Extract them as key-value pairs where the value is an array of strings (bullet points/descriptions) or a single string.
     "section_name": ["content"]
   }
 }
@@ -173,7 +184,6 @@ Return ONLY valid JSON."""
     
     try:
         llm_response = await call_openrouter(messages, response_format={"type": "json_object"})
-        # OpenRouter might return markdown code blocks, strip them if present
         cleaned_json = llm_response.replace('```json', '').replace('```', '').strip()
         structured_data = json.loads(cleaned_json)
         profile_data = structured_data.get("profile_data", {})
@@ -183,56 +193,62 @@ Return ONLY valid JSON."""
         profile_data = {}
         structured_json = None
 
-    with engine.connect() as conn:
-        # Upsert Profile (backfill missing fields)
-        if profile_data:
-            q_prof = select(profile).where(profile.c.id == 1)
-            existing_prof = conn.execute(q_prof).mappings().first()
-            if existing_prof:
-                update_vals = {k: v for k, v in profile_data.items() if v and not existing_prof.get(k)}
-                if update_vals:
-                    conn.execute(update(profile).where(profile.c.id == 1).values(**update_vals))
-            else:
-                conn.execute(insert(profile).values(id=1, **{k: v for k, v in profile_data.items() if v}))
+    try:
+        with engine.connect() as conn:
+            # Upsert Profile (backfill missing fields)
+            if profile_data:
+                q_prof = select(profile).where(profile.c.id == 1)
+                existing_prof = conn.execute(q_prof).mappings().first()
+                if existing_prof:
+                    update_vals = {k: v for k, v in profile_data.items() if v and not existing_prof.get(k)}
+                    if update_vals:
+                        conn.execute(update(profile).where(profile.c.id == 1).values(**update_vals))
+                else:
+                    conn.execute(insert(profile).values(id=1, **{k: v for k, v in profile_data.items() if v}))
 
-        query = select(resume).where(resume.c.id == 1)
-        exists = conn.execute(query).first()
-        
-        if exists:
-            stmt = update(resume).where(resume.c.id == 1).values(
-                filename=filename,
-                raw_text=raw_text,
-                structured_json=structured_json,
-                uploaded_at=datetime.datetime.now(datetime.timezone.utc)
-            )
-            conn.execute(stmt)
-            conn.commit()
-            status = "updated"
-        else:
-            stmt = insert(resume).values(
-                id=1,
-                filename=filename,
-                raw_text=raw_text,
-                structured_json=structured_json,
-                uploaded_at=datetime.datetime.now(datetime.timezone.utc)
-            )
-            conn.execute(stmt)
-            conn.commit()
-            status = "created"
-    return {
-        "status": status,
-        "filename": filename,
-        "structured": bool(structured_json)
-    }
+            query = select(resume).where(resume.c.id == 1)
+            exists = conn.execute(query).first()
+            
+            if exists:
+                stmt = update(resume).where(resume.c.id == 1).values(
+                    filename=filename,
+                    raw_text=raw_text,
+                    structured_json=structured_json,
+                    uploaded_at=datetime.datetime.now(datetime.timezone.utc)
+                )
+                conn.execute(stmt)
+                conn.commit()
+                status = "updated"
+            else:
+                stmt = insert(resume).values(
+                    id=1,
+                    filename=filename,
+                    raw_text=raw_text,
+                    structured_json=structured_json,
+                    uploaded_at=datetime.datetime.now(datetime.timezone.utc)
+                )
+                conn.execute(stmt)
+                conn.commit()
+                status = "created"
+        return {
+            "status": status,
+            "filename": filename,
+            "structured": bool(structured_json)
+        }
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database error during resume save: {str(e)}")
 
 @app.get("/resume")
 def get_resume():
-    with engine.connect() as conn:
-        query = select(resume).where(resume.c.id == 1)
-        result = conn.execute(query).mappings().first()
-        if result and result.get("structured_json"):
-            return json.loads(result["structured_json"])
-        return {}
+    try:
+        with engine.connect() as conn:
+            query = select(resume).where(resume.c.id == 1)
+            result = conn.execute(query).mappings().first()
+            if result and result.get("structured_json"):
+                return json.loads(result["structured_json"])
+            return {}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
 class MatchRequest(BaseModel):
     unmatched_labels: List[str]
@@ -273,24 +289,29 @@ Example: {{"What is your primary phone?": "profile.phone", "Tell us about your p
 
 @app.post("/corrections")
 def upsert_correction(data: CorrectionRequest):
-    with engine.connect() as conn:
-        query = select(corrections).where(corrections.c.field_label == data.field_label)
-        exists = conn.execute(query).first()
-        if exists:
-            stmt = update(corrections).where(corrections.c.field_label == data.field_label).values(corrected_value=data.corrected_value)
-        else:
-            stmt = insert(corrections).values(field_label=data.field_label, corrected_value=data.corrected_value)
-        conn.execute(stmt)
-        conn.commit()
-        return {"status": "saved", "field_label": data.field_label, "corrected_value": data.corrected_value}
+    try:
+        with engine.connect() as conn:
+            query = select(corrections).where(corrections.c.field_label == data.field_label)
+            exists = conn.execute(query).first()
+            if exists:
+                stmt = update(corrections).where(corrections.c.field_label == data.field_label).values(corrected_value=data.corrected_value)
+            else:
+                stmt = insert(corrections).values(field_label=data.field_label, corrected_value=data.corrected_value)
+            conn.execute(stmt)
+            conn.commit()
+            return {"status": "saved", "field_label": data.field_label, "corrected_value": data.corrected_value}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database update error: {str(e)}")
 
 @app.get("/corrections")
 def get_corrections():
-    with engine.connect() as conn:
-        query = select(corrections)
-        result = conn.execute(query).mappings().all()
-        return {r["field_label"]: r["corrected_value"] for r in result}
-
+    try:
+        with engine.connect() as conn:
+            query = select(corrections)
+            result = conn.execute(query).mappings().all()
+            return {r["field_label"]: r["corrected_value"] for r in result}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
 class DraftRequest(BaseModel):
     questions: List[str]

@@ -1,23 +1,37 @@
 const API_BASE = 'http://127.0.0.1:8420';
 
+// Helper for fetch with timeout
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs / 1000}s`);
+    }
+    throw error;
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'save_correction') {
-    fetch(`${API_BASE}/corrections`, {
+    fetchWithTimeout(`${API_BASE}/corrections`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         field_label: message.field_label,
         corrected_value: message.corrected_value
       })
-    })
-    .then(res => {
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      return res.json();
-    })
+    }, 5000)
     .then(data => {
-      console.log('[FormPilot Service Worker] Correction saved:', data);
       sendResponse({ success: true, data });
     })
     .catch(err => {
@@ -28,19 +42,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.action === 'match_fields') {
-    fetch(`${API_BASE}/match-field`, {
+    fetchWithTimeout(`${API_BASE}/match-field`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         unmatched_labels: message.unmatched_labels
       })
-    })
-    .then(res => {
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      return res.json();
-    })
+    }, 30000)
     .then(data => {
       sendResponse({ success: true, mappings: data.mappings });
     })
@@ -50,22 +58,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
   if (message.action === 'draft_answer') {
-    fetch(`${API_BASE}/draft-answer`, {
+    fetchWithTimeout(`${API_BASE}/draft-answer`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         questions: message.questions,
         user_context: message.user_context,
         use_profile: message.use_profile
       })
-    })
-    .then(res => {
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      return res.json();
-    })
+    }, 30000)
     .then(data => {
       sendResponse({ success: true, drafts: data.drafts });
     })
