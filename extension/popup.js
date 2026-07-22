@@ -1,8 +1,6 @@
 // ── FormPilot Popup Logic ──
 // Handles UI state rendering and communication with content script / backend
 
-const API_BASE = 'http://127.0.0.1:8420';
-
 const statusBar  = document.getElementById('statusBar');
 const statusText = document.getElementById('statusText');
 const actionZone = document.getElementById('actionZone');
@@ -56,7 +54,6 @@ function showNoFields() {
 function showLoading() {
   autofillBtn.disabled = true;
   autofillBtn.className = 'btn-autofill loading';
-  // CSS animated dots fallback, or simple text if no spinner
   autofillBtn.textContent = 'Working on it...';
   statusText.textContent = 'Filling...';
 }
@@ -88,12 +85,13 @@ function showFillResult(matched, needsReview) {
   logLine.className = 'log-line';
 }
 
-function showBackendDown() {
+async function showBackendDown() {
+  const apiBase = await getApiBase();
   statusBar.className = 'status-bar error';
   statusText.className = 'status-text error';
   statusText.textContent = "Can't reach FormPilot server";
   actionZone.className = 'action-zone hidden';
-  logZone.innerHTML = '<p class="log-line error">Is the backend running on port 8420?</p>';
+  logZone.innerHTML = `<p class="log-line error">Is server running at ${apiBase}?</p>`;
 }
 
 function showError(message) {
@@ -125,13 +123,14 @@ autofillBtn.addEventListener('click', async () => {
   showLoading();
 
   try {
-    const res = await fetch(`${API_BASE}/profile`, { method: 'GET' });
+    const apiBase = await getApiBase();
+    const res = await fetch(`${apiBase}/profile`, { method: 'GET' });
     if (!res.ok) throw new Error('Failed to fetch profile');
     const profile = await res.json();
 
     let corrections = {};
     try {
-      const corrRes = await fetch(`${API_BASE}/corrections`, { method: 'GET' });
+      const corrRes = await fetch(`${apiBase}/corrections`, { method: 'GET' });
       if (corrRes.ok) {
         corrections = await corrRes.json();
       }
@@ -141,7 +140,7 @@ autofillBtn.addEventListener('click', async () => {
 
     let resume = {};
     try {
-      const resRes = await fetch(`${API_BASE}/resume`, { method: 'GET' });
+      const resRes = await fetch(`${apiBase}/resume`, { method: 'GET' });
       if (resRes.ok) {
         resume = await resRes.json();
       }
@@ -164,24 +163,25 @@ autofillBtn.addEventListener('click', async () => {
       }
     });
   } catch (err) {
-    showError('Could not connect to this page.');
+    showError('Could not connect to backend server.');
   }
 });
 
 // ── On popup open: check backend health and scan for fields ──
 async function init() {
+  const apiBase = await getApiBase();
   // 1. Check backend health
   try {
-    const res = await fetch(`${API_BASE}/ping`, { method: 'GET' });
+    const res = await fetch(`${apiBase}/ping`, { method: 'GET' });
     if (!res.ok) throw new Error();
   } catch {
-    showBackendDown();
+    await showBackendDown();
     return;
   }
 
   // 2. Check profile completeness
   try {
-    const res = await fetch(`${API_BASE}/profile`, { method: 'GET' });
+    const res = await fetch(`${apiBase}/profile`, { method: 'GET' });
     const profile = await res.json();
     const filled = Object.values(profile).filter(v => v !== null && v !== '').length;
     // id is always present, so subtract 1

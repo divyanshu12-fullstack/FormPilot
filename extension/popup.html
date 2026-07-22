@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=370">
+  <meta name="viewport" content="width=300">
   <title>FormPilot</title>
   <script src="theme.js"></script>
+  <script src="shared/config.js"></script>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
 
   <!-- Status Bar -->
   <div class="status-bar" id="statusBar">
-    <span class="status-text" id="statusText">4 fields detected</span>
+    <span class="status-text" id="statusText">Scanning page...</span>
     <button class="settings-link" id="settingsBtn" title="Open settings">⚙</button>
   </div>
 
@@ -22,7 +23,7 @@
 
   <!-- Log Zone -->
   <div class="log-zone" id="logZone">
-    <p class="log-line" id="logLine">3 filled · 1 needs review</p>
+    <p class="log-line" id="logLine"></p>
   </div>
 
   <script src="popup.js"></script>

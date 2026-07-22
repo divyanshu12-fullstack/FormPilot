@@ -1,7 +1,10 @@
-const API_BASE = 'http://127.0.0.1:8420';
+// FormPilot Background Service Worker
+importScripts('shared/config.js');
 
 // Helper for fetch with timeout
-async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+async function fetchWithTimeout(urlPath, options = {}, timeoutMs = 10000) {
+  const apiBase = await getApiBase();
+  const url = `${apiBase}${urlPath}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -23,7 +26,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'save_correction') {
-    fetchWithTimeout(`${API_BASE}/corrections`, {
+    fetchWithTimeout('/corrections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -42,7 +45,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.action === 'match_fields') {
-    fetchWithTimeout(`${API_BASE}/match-field`, {
+    fetchWithTimeout('/match-field', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -60,7 +63,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'draft_answer') {
-    fetchWithTimeout(`${API_BASE}/draft-answer`, {
+    fetchWithTimeout('/draft-answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -1,5 +1,3 @@
-const API_BASE = 'http://127.0.0.1:8420';
-
 document.addEventListener('DOMContentLoaded', async () => {
   // 0. Backend Health Check
   const backendDot = document.getElementById('backend-dot');
@@ -7,7 +5,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   async function checkBackend() {
     try {
-      const res = await fetch(`${API_BASE}/ping`, { method: 'GET' });
+      const apiBase = await getApiBase();
+      const res = await fetch(`${apiBase}/ping`, { method: 'GET' });
       if (res.ok) {
         backendDot.className = 'status-dot online';
         backendText.textContent = 'Backend: Connected';
@@ -45,7 +44,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Fetch profile
   try {
-    const res = await fetch(`${API_BASE}/profile`);
+    const apiBase = await getApiBase();
+    const res = await fetch(`${apiBase}/profile`);
     if (res.ok) {
       const data = await res.json();
       for (const [key, val] of Object.entries(data)) {
@@ -89,7 +89,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/profile`, {
+      const apiBase = await getApiBase();
+      const res = await fetch(`${apiBase}/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -147,7 +148,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Fetch current resume status
   try {
-    const res = await fetch(`${API_BASE}/resume`);
+    const apiBase = await getApiBase();
+    const res = await fetch(`${apiBase}/resume`);
     if (res.ok) {
       const data = await res.json();
       if (data && Object.keys(data).length > 0) {
@@ -207,7 +209,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     formData.append('file', file);
 
     try {
-      const res = await fetch(`${API_BASE}/resume/upload`, {
+      const apiBase = await getApiBase();
+      const res = await fetch(`${apiBase}/resume/upload`, {
         method: 'POST',
         body: formData
       });
@@ -217,7 +220,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         uploadStatus.className = 'status-msg success';
         
         // Refetch to get full structured_json for the summary
-        const res2 = await fetch(`${API_BASE}/resume`);
+        const res2 = await fetch(`${apiBase}/resume`);
         const data2 = await res2.json();
         updateResumeSummary(data2);
       } else {
@@ -238,6 +241,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const sliderVal = document.getElementById('highlight-val');
   const autoDraftToggle = document.getElementById('auto-draft-toggle');
   const themeToggle = document.getElementById('theme-toggle');
+  const apiUrlInput = document.getElementById('api-url-input');
+
+  // Load API URL
+  if (apiUrlInput) {
+    getApiBase().then(url => {
+      apiUrlInput.value = url;
+    });
+    apiUrlInput.addEventListener('change', (e) => {
+      setApiBase(e.target.value).then(cleanUrl => {
+        apiUrlInput.value = cleanUrl;
+        checkBackend();
+      });
+    });
+  }
 
   // Load from chrome.storage
   chrome.storage.local.get({ theme: 'system' }, (items) => {

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>FormPilot Settings</title>
   <script src="theme.js"></script>
+  <script src="shared/config.js"></script>
   <link rel="stylesheet" href="options.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -162,6 +163,18 @@
             <div class="pref-control toggle-switch">
               <input type="checkbox" id="theme-toggle">
               <label for="theme-toggle" class="slider-round"></label>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="pref-group">
+            <div class="pref-info">
+              <h3>Backend API URL</h3>
+              <p>URL for the local FastAPI server backend.</p>
+            </div>
+            <div class="pref-control">
+              <input type="url" id="api-url-input" placeholder="http://127.0.0.1:8420" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); font-size: 13px; width: 200px;">
             </div>
           </div>
 
