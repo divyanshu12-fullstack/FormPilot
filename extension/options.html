@@ -27,6 +27,9 @@
         <button class="nav-btn" data-tab="tab-preferences">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           Preferences
+        <button class="nav-btn" data-tab="tab-about">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          About
         </button>
       </nav>
       <div class="sidebar-footer">
@@ -205,6 +208,31 @@
             </div>
           </div>
           
+        </div>
+      </section>
+
+      <!-- About Tab -->
+      <section id="tab-about" class="tab-pane">
+        <header class="tab-header">
+          <h2>About FormPilot</h2>
+          <p>The story behind the ultimate form autofiller.</p>
+        </header>
+        <div class="content-card" style="line-height: 1.6; font-size: 14px; color: var(--text-muted);">
+          <h3 style="color: var(--text-main); margin-bottom: 8px;">The "Why"</h3>
+          <p style="margin-bottom: 16px;">As a final-year student, I was frustrated by the sheer volume of repetitive placement and hackathon forms I had to fill out manually on my laptop. Why couldn't PC browsers have a native, seamless autofill like mobile? I built FormPilot to solve this.</p>
+          
+          <h3 style="color: var(--text-main); margin-bottom: 8px;">Privacy &amp; Speed First</h3>
+          <p style="margin-bottom: 16px;">Your data is yours. FormPilot uses a local SQLite database and Python-based parsing (<code>pdfplumber</code> &amp; <code>python-docx</code>) to process your resume securely on your own machine. The ultra-lightweight, vanilla HTML/JS frontend ensures instantaneous load times and zero bloat.</p>
+
+          <h3 style="color: var(--text-main); margin-bottom: 8px;">The 3-Phase Interactive Fill</h3>
+          <p style="margin-bottom: 16px;">Instead of sending every ambiguous question to an LLM (which wastes tokens and causes hallucinations), FormPilot uses a smart cascade:</p>
+          <ul style="margin-bottom: 16px; padding-left: 20px;">
+            <li style="margin-bottom: 6px;"><strong>1. Zero-Latency Static Fill:</strong> Deterministic fields are filled instantly in &lt;5ms.</li>
+            <li style="margin-bottom: 6px;"><strong>2. Inline AI Assist (✨):</strong> A subtle Sparkle icon lets you selectively guide the AI on complex, conversational questions.</li>
+            <li><strong>3. The Learning Loop:</strong> If you manually correct a field (like a unique Registration Number), FormPilot saves it and automatically fills it next time. No LLM required.</li>
+          </ul>
+
+          <p style="margin-top: 24px; font-style: italic; border-top: 1px solid var(--border-color); padding-top: 16px;">Built to help you fly through forms, so you can focus on what actually matters.</p>
         </div>
       </section>
 

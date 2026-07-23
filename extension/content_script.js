@@ -491,6 +491,7 @@ const debouncedRescan = debounce(() => {
   collectFields();
   if (cachedFields.length !== prev) {
     console.log(`[FormPilot] Rescan: ${prev} → ${cachedFields.length} fields`);
+    chrome.runtime.sendMessage({ action: 'forms_detected', count: cachedFields.length }).catch(() => {});
   }
 }, 500);
 
@@ -910,7 +911,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
             }
           } else {
-             console.error('[FormPilot] Invalid response from match_fields proxy:', llmResp);
+             const errMsg = (llmResp && llmResp.error) ? llmResp.error : JSON.stringify(llmResp);
+             console.error('[FormPilot] Failed to get LLM mappings:', errMsg);
           }
         } catch (e) {
           console.error('[FormPilot] LLM Fallback failed:', e);
@@ -1081,6 +1083,8 @@ function injectSparkleIcon(field, label) {
   createDraftDialog();
 
   collectFields();
+  chrome.runtime.sendMessage({ action: 'forms_detected', count: cachedFields.length }).catch(() => {});
+  
   domObserver.observe(document.body, { childList: true, subtree: true });
   checkForIframes();
 })();

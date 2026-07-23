@@ -82,5 +82,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'forms_detected') {
+    if (message.count > 0) {
+      chrome.action.setBadgeText({ text: 'AI', tabId: sender.tab.id });
+      chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: sender.tab.id });
+    } else {
+      chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
+    }
+    sendResponse({ success: true });
+    return false;
+  }
+
   return false;
+});
+
+// --- Icon Click Handling ---
+let clickCount = 0;
+let clickTimer = null;
+
+chrome.action.onClicked.addListener((tab) => {
+  clickCount++;
+  
+  if (clickCount === 1) {
+    clickTimer = setTimeout(() => {
+      if (clickCount >= 2) {
+        // Double or multi-click
+        chrome.runtime.openOptionsPage();
+      } else {
+        // Single click
+        fetchWithTimeout('/profile', {}, 5000)
+          .then(profile => {
+             chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile: profile })
+               .catch(err => console.log('Could not send autofill to tab:', err));
+          })
+          .catch(err => {
+             console.error('Failed to fetch profile for autofill:', err);
+             chrome.tabs.sendMessage(tab.id, { action: 'autofill_error', error: 'Could not fetch profile. Is the backend running?' })
+               .catch(() => {});
+          });
+      }
+      clickCount = 0;
+    }, 250);
+  }
 });
