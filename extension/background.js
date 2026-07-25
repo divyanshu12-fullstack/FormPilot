@@ -84,8 +84,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'forms_detected') {
     if (message.count > 0) {
-      chrome.action.setBadgeText({ text: 'AI', tabId: sender.tab.id });
-      chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: sender.tab.id });
+      fetchWithTimeout('/ping', {}, 2000)
+        .then(() => {
+          chrome.action.setBadgeText({ text: 'AI', tabId: sender.tab.id });
+          chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: sender.tab.id });
+        })
+        .catch(() => {
+          chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
+        });
     } else {
       chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
     }
