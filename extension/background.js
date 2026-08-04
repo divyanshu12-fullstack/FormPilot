@@ -109,25 +109,35 @@ let clickTimer = null;
 chrome.action.onClicked.addListener((tab) => {
   clickCount++;
   
-  if (clickCount === 1) {
-    clickTimer = setTimeout(() => {
-      if (clickCount >= 2) {
-        // Double or multi-click
-        chrome.runtime.openOptionsPage();
-      } else {
-        // Single click
-        fetchWithTimeout('/profile', {}, 5000)
-          .then(profile => {
-             chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile: profile })
-               .catch(err => console.log('Could not send autofill to tab:', err));
-          })
-          .catch(err => {
-             console.error('Failed to fetch profile for autofill:', err);
-             chrome.tabs.sendMessage(tab.id, { action: 'autofill_error', error: 'Could not fetch profile. Is the backend running?' })
-               .catch(() => {});
-          });
-      }
-      clickCount = 0;
-    }, 250);
+  // Clear any existing timer on each new click
+  if (clickTimer) {
+    clearTimeout(clickTimer);
   }
+  
+  clickTimer = setTimeout(() => {
+    const clicks = clickCount;
+    clickCount = 0;
+    clickTimer = null;
+    
+    if (clicks >= 2) {
+      // Double or multi-click
+      chrome.runtime.openOptionsPage();
+    } else {
+      // Single click — fetch profile, corrections, and resume concurrently
+      Promise.all([
+        fetchWithTimeout('/profile', {}, 5000),
+        fetchWithTimeout('/corrections', {}, 5000).catch(() => ({})),
+        fetchWithTimeout('/resume', {}, 5000).catch(() => ({}))
+      ])
+        .then(([profile, corrections, resume]) => {
+           chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile: profile, corrections: corrections, resume: resume })
+             .catch(err => console.log('Could not send autofill to tab:', err));
+        })
+        .catch(err => {
+           console.error('Failed to fetch data for autofill:', err);
+           chrome.tabs.sendMessage(tab.id, { action: 'autofill_error', error: 'Could not fetch profile. Is the backend running?' })
+             .catch(() => {});
+        });
+    }
+  }, 300);
 });

@@ -27,7 +27,7 @@ const FIELD_TYPES = {
 const FIELD_KEYWORDS = {
   [FIELD_TYPES.FIRST_NAME]: ['first name', 'given name', 'fname'],
   [FIELD_TYPES.LAST_NAME]: ['last name', 'family name', 'surname', 'lname'],
-  [FIELD_TYPES.FULL_NAME]: ['full name', 'name', 'applicant name', 'candidate name'],
+  [FIELD_TYPES.FULL_NAME]: ['full name', 'your name', 'applicant name', 'candidate name'],
   [FIELD_TYPES.EMAIL]: ['email', 'e-mail', 'email address'],
   [FIELD_TYPES.PHONE]: ['phone', 'mobile', 'telephone', 'cell'],
   [FIELD_TYPES.ADDRESS_LINE1]: ['address', 'street', 'street address', 'address line 1', 'line 1'],
@@ -37,8 +37,8 @@ const FIELD_KEYWORDS = {
   [FIELD_TYPES.COUNTRY]: ['country', 'nation'],
   [FIELD_TYPES.LINKEDIN_URL]: ['linkedin', 'linked in', 'linkedin profile', 'linkedin url'],
   [FIELD_TYPES.GITHUB_URL]: ['github', 'git hub', 'github url'],
-  [FIELD_TYPES.PORTFOLIO_URL]: ['portfolio', 'website', 'personal website', 'url', 'link'],
-  [FIELD_TYPES.CURRENT_TITLE]: ['title', 'current title', 'job title', 'role'],
+  [FIELD_TYPES.PORTFOLIO_URL]: ['portfolio', 'personal website', 'portfolio url', 'portfolio link'],
+  [FIELD_TYPES.CURRENT_TITLE]: ['current title', 'job title', 'designation', 'role'],
   [FIELD_TYPES.CURRENT_COMPANY]: ['company', 'current company', 'employer'],
   [FIELD_TYPES.EXPERIENCE_YEARS]: ['experience', 'years of experience', 'yoe'],
   [FIELD_TYPES.WORK_AUTHORIZATION]: ['authorization', 'authorized', 'visa', 'sponsorship', 'sponsor', 'right to work'],
@@ -60,8 +60,10 @@ const FIELD_SIGNATURES = {
   'candidate[last_name]': FIELD_TYPES.LAST_NAME,
   'candidate[email]': FIELD_TYPES.EMAIL,
   'candidate[phone]': FIELD_TYPES.PHONE,
-  // Lever patterns
-  'name': FIELD_TYPES.FULL_NAME, // Lever often uses 'name' for full name
+  // Lever patterns (removed bare 'name' as it falsely matches unrelated fields)
+  'applicant_name': FIELD_TYPES.FULL_NAME,
+  'full_name': FIELD_TYPES.FULL_NAME,
+  'candidate_name': FIELD_TYPES.FULL_NAME,
   'email': FIELD_TYPES.EMAIL,
   'phone': FIELD_TYPES.PHONE,
   'org': FIELD_TYPES.CURRENT_COMPANY,
@@ -109,17 +111,25 @@ const SKIP_SECTIONS = [
   'references',
   'reference',
   'manager',
-  'supervisor'
+  'supervisor',
+  'father',
+  'mother',
+  'parent',
+  'guardian',
+  'spouse',
+  'nominee',
+  'family',
+  'next of kin'
 ];
 
 // Fields that should NEVER be saved to corrections or sent to LLM
 const SENSITIVE_FIELD_KEYWORDS = [
-  'password', 'passwd', 'pass',
+  'password', 'passwd',
   'card number', 'card no', 'credit card', 'debit card',
   'cvv', 'cvc', 'security code',
   'ssn', 'social security',
   'bank account', 'account number', 'routing number',
-  'pin', 'secret', 'token',
+  'security pin', 'secret', 'token',
   'otp', 'verification code'
 ];
 

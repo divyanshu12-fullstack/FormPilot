@@ -27,7 +27,7 @@ app = FastAPI(title="FormPilot API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["chrome-extension://nefbcnjmameakekdalabahboffpghejm"],
+    allow_origin_regex=r"^chrome-extension://.*$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -268,10 +268,14 @@ For each form label provided, map it to the MOST appropriate key.
 If it maps to a profile key, use the format 'profile.<key>'.
 If it requires a long-form answer from a resume section, use 'resume.<key>'.
 
-CRITICAL INSTRUCTION: If the form label is a conversational question (e.g., 'Why did your grades go down?', 'What is your motivation?') that requires a custom written answer rather than a direct copy-paste of a resume section, YOU MUST MAP IT TO null. Do not attempt to map conversational questions to static resume sections. Only map fields that are clearly asking for existing data.
+CRITICAL INSTRUCTIONS:
+1. If the form label asks for information about ANOTHER PERSON (e.g., father's name, mother's name, spouse's name, guardian's name, emergency contact, reference, nominee), YOU MUST MAP IT TO null. These fields ask for data about someone other than the applicant.
+2. If the form label is a conversational question (e.g., 'Why did your grades go down?', 'What is your motivation?') that requires a custom written answer rather than a direct copy-paste of a resume section, YOU MUST MAP IT TO null.
+3. If the form label asks for data that does NOT exist in the profile schema or resume sections (e.g., 'Aadhaar Number', 'Passport Number', 'Blood Group', 'Marital Status'), YOU MUST MAP IT TO null. Do NOT force a mapping to an unrelated key.
+4. Only map fields where you are confident the schema key genuinely matches what the form is asking for.
 
 Return ONLY a JSON object mapping the exact form labels to the keys.
-Example: {{"What is your primary phone?": "profile.phone", "Tell us about your past projects": "resume.projects", "Why did you choose this major?": null}}
+Example: {{"What is your primary phone?": "profile.phone", "Tell us about your past projects": "resume.projects", "Father's Name": null, "Why did you choose this major?": null, "Blood Group": null}}
 """
     messages = [
         {"role": "system", "content": system_prompt},

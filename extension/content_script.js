@@ -532,6 +532,12 @@ function getProfileValue(type, profile) {
   return profile[type] || '';
 }
 
+const NEGATIVE_LABEL_KEYWORDS = [
+  'father', 'mother', 'parent', 'guardian', 'spouse', 'husband', 'wife',
+  'nominee', 'emergency', 'reference', 'referral', 'supervisor', 'manager',
+  'next of kin', 'secondary', 'alternate', 'other', 'previous', 'former'
+];
+
 function matchField(field, profile, corrections = {}) {
   const section = field.sectionContext.toLowerCase();
   for (const skip of SKIP_SECTIONS) {
@@ -541,6 +547,11 @@ function matchField(field, profile, corrections = {}) {
   // Normalize label
   let label = (field.labelText || field.placeholder || field.ariaLabel || '').toLowerCase();
   label = label.replace(/\xa0/g, ' ').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+
+  // Skip fields whose labels indicate they belong to someone else
+  for (const neg of NEGATIVE_LABEL_KEYWORDS) {
+    if (label.includes(neg)) return null;
+  }
 
   // 1. Check corrections FIRST
   if (corrections && corrections[label] !== undefined) {
@@ -630,10 +641,16 @@ async function fillField(field, matchData) {
     // Custom Widgets
     if (field.widgetRole === 'listbox' || field.widgetRole === 'combobox') {
       el.click(); // open dropdown
-      const optionEl = await waitForElement('[role="option"]', { timeout: 1500 });
+      
+      // Scope option search to the dropdown's popup container
+      const ownedId = el.getAttribute('aria-owns') || el.getAttribute('aria-controls');
+      const popupContainer = ownedId ? document.getElementById(ownedId) : null;
+      const searchRoot = popupContainer || document;
+      
+      const optionEl = await waitForElement('[role="option"]', { timeout: 1500, parent: searchRoot });
       if (optionEl) {
-        // Re-query all options now that they are rendered
-        const opts = [...document.querySelectorAll('[role="option"]')].map(o => ({
+        // Re-query options scoped to the popup container (or document as fallback)
+        const opts = [...searchRoot.querySelectorAll('[role="option"]')].map(o => ({
           el: o, 
           text: o.textContent.trim(), 
           value: o.getAttribute('data-value') || o.textContent.trim()
@@ -653,17 +670,25 @@ async function fillField(field, matchData) {
     if (field.widgetRole === 'radiogroup' || field.widgetRole === 'checkboxgroup') {
       const matched = fuzzyMatchOption(field.options, val, matchData.type);
       if (matched) {
+        // Helper: check if an element is already selected/checked
+        const isAlreadySelected = (target) => {
+          if (!target) return false;
+          if (target.checked) return true;
+          if (target.getAttribute('aria-checked') === 'true') return true;
+          return false;
+        };
+
         // Strategy 1: Find by data-value attribute
         const byDataValue = el.querySelector(`[data-value="${CSS.escape(matched.value)}"]`);
         if (byDataValue) {
-          byDataValue.click();
+          if (!isAlreadySelected(byDataValue)) byDataValue.click();
           return true;
         }
 
         // Strategy 2: Find by value attribute (standard HTML radio/checkbox)
         const byValue = el.querySelector(`[value="${CSS.escape(matched.value)}"]`);
         if (byValue) {
-          byValue.click();
+          if (!isAlreadySelected(byValue)) byValue.click();
           return true;
         }
 
@@ -673,20 +698,18 @@ async function fillField(field, matchData) {
           const childText = child.textContent.trim().toLowerCase();
           const matchText = matched.text.toLowerCase();
           if (childText === matchText || childText.includes(matchText) || matchText.includes(childText)) {
-            child.click();
+            if (!isAlreadySelected(child)) child.click();
             return true;
           }
         }
 
         // Strategy 4: Google Forms wraps radio options in label-like containers
-        // Walk siblings to find the clickable area near the matching text
         const allLabels = el.querySelectorAll('[data-value], span, label');
         for (const lbl of allLabels) {
           const lblText = lbl.textContent.trim().toLowerCase();
           if (lblText === matched.text.toLowerCase()) {
-            // Click the element itself or its closest clickable ancestor
             const clickTarget = lbl.closest('[role="radio"], [role="checkbox"]') || lbl;
-            clickTarget.click();
+            if (!isAlreadySelected(clickTarget)) clickTarget.click();
             return true;
           }
         }
@@ -700,6 +723,7 @@ async function fillField(field, matchData) {
 // CORRECTIONS DETECTOR
 // ═══════════════════════════════════════
 
+let isAutoFilling = false;
 const filledFieldsMap = new WeakMap();
 
 function isSensitiveField(label) {
@@ -750,6 +774,7 @@ function trackFieldCorrections(field, filledValue) {
   el.dataset.formpilotTracked = 'true';
 
   const handler = () => {
+    if (isAutoFilling) return; // Ignore events triggered by autofill itself
     let currentValue = '';
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
       currentValue = el.value;
@@ -763,7 +788,7 @@ function trackFieldCorrections(field, filledValue) {
     }
 
     const tracked = filledFieldsMap.get(el);
-    if (tracked && currentValue && currentValue !== tracked.filledValue) {
+    if (tracked && currentValue !== tracked.filledValue) {
       tracked.filledValue = currentValue;
       filledFieldsMap.set(el, tracked);
       sendCorrection(tracked.label, currentValue);
@@ -810,8 +835,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const fields = collectFields();
     let matchedCount = 0;
     const corrections = message.corrections || {};
+    const resume = message.resume || {};
 
     (async () => {
+      isAutoFilling = true;
       const unmatchedFields = [];
       const unmatchedLabels = [];
 
@@ -819,6 +846,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       for (const field of fields) {
         const match = matchField(field, message.profile, corrections);
         if (match) {
+           // Skip fields that already have user-entered values, unless this is a correction
+           const existingValue = field.element.value || field.element.textContent?.trim() || '';
+           if (existingValue && match.type !== 'correction' && !filledFieldsMap.has(field.element)) {
+             continue; // User already typed something here, don't overwrite
+           }
            const success = await fillField(field, match);
            if (success) {
              matchedCount++;
@@ -926,6 +958,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
       
+      isAutoFilling = false;
       sendResponse({
         success: true,
         matched: matchedCount,
@@ -1037,21 +1070,32 @@ function injectSparkleIcon(field, label) {
   if (field.element.dataset.fpSparkle) return;
   field.element.dataset.fpSparkle = 'true';
   
-  const rect = field.element.getBoundingClientRect();
+  // Use a wrapper to position the sparkle relative to the field
+  const parent = field.element.parentElement;
+  if (!parent) return;
+  
+  // Ensure parent has relative positioning for sparkle placement
+  const parentPosition = window.getComputedStyle(parent).position;
+  if (parentPosition === 'static') {
+    parent.style.position = 'relative';
+  }
+  
   const sparkle = document.createElement('div');
   sparkle.className = 'formpilot-sparkle';
   sparkle.textContent = '✨';
   sparkle.style.position = 'absolute';
-  sparkle.style.left = (rect.right - 24 + window.scrollX) + 'px';
-  sparkle.style.top = (rect.top + window.scrollY + (rect.height / 2) - 10) + 'px';
+  sparkle.style.right = '4px';
+  sparkle.style.top = '50%';
+  sparkle.style.transform = 'translateY(-50%)';
   sparkle.style.cursor = 'pointer';
   sparkle.style.zIndex = '9999';
   sparkle.style.fontSize = '16px';
   sparkle.style.transition = 'transform 0.2s';
+  sparkle.style.pointerEvents = 'auto';
   sparkle.fieldRef = field; 
   
-  sparkle.addEventListener('mouseenter', () => sparkle.style.transform = 'scale(1.2)');
-  sparkle.addEventListener('mouseleave', () => sparkle.style.transform = 'scale(1)');
+  sparkle.addEventListener('mouseenter', () => sparkle.style.transform = 'translateY(-50%) scale(1.2)');
+  sparkle.addEventListener('mouseleave', () => sparkle.style.transform = 'translateY(-50%) scale(1)');
   
   sparkle.addEventListener('click', (e) => {
     e.preventDefault();
@@ -1070,7 +1114,7 @@ function injectSparkleIcon(field, label) {
     dialog.style.display = 'block';
   });
   
-  document.body.appendChild(sparkle);
+  parent.appendChild(sparkle);
 }
 
 // ═══════════════════════════════════════
