@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pdfplumber
 import docx
-from sqlalchemy import select, insert, update
+from sqlalchemy import select, insert, update, delete
 from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 
@@ -316,6 +316,43 @@ def get_corrections():
             return {r["field_label"]: r["corrected_value"] for r in result}
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
+
+@app.put("/corrections")
+def update_correction(data: CorrectionRequest):
+    try:
+        with engine.connect() as conn:
+            stmt = update(corrections).where(corrections.c.field_label == data.field_label).values(corrected_value=data.corrected_value)
+            result = conn.execute(stmt)
+            conn.commit()
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Correction not found")
+            return {"status": "updated", "field_label": data.field_label, "corrected_value": data.corrected_value}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database update error: {str(e)}")
+
+@app.delete("/corrections/{field_label:path}")
+def delete_correction(field_label: str):
+    try:
+        with engine.connect() as conn:
+            stmt = delete(corrections).where(corrections.c.field_label == field_label)
+            result = conn.execute(stmt)
+            conn.commit()
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Correction not found")
+            return {"status": "deleted", "field_label": field_label}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database delete error: {str(e)}")
+
+@app.delete("/corrections")
+def clear_all_corrections():
+    try:
+        with engine.connect() as conn:
+            stmt = delete(corrections)
+            result = conn.execute(stmt)
+            conn.commit()
+            return {"status": "cleared", "count": result.rowcount}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Database clear error: {str(e)}")
 
 class DraftRequest(BaseModel):
     questions: List[str]

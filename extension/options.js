@@ -35,6 +35,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.classList.add('active');
       const targetId = btn.getAttribute('data-tab');
       document.getElementById(targetId).classList.add('active');
+
+      if (targetId === 'tab-learned') {
+        loadLearnedData();
+      }
     });
   });
 
@@ -288,4 +292,216 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.storage.sync.set({ autoDraftMode: e.target.checked });
   });
 
+  // 5. Learned Data Tab Logic
+  const learnedBadge = document.getElementById('learned-count-badge');
+  const learnedSearch = document.getElementById('learned-search-input');
+  const learnedTable = document.getElementById('learned-table');
+  const learnedBody = document.getElementById('learned-table-body');
+  const learnedEmptyState = document.getElementById('learned-empty-state');
+  const learnedStatus = document.getElementById('learned-status-msg');
+  const clearAllLearnedBtn = document.getElementById('clear-all-learned-btn');
+
+  let learnedDataStore = {};
+
+  async function loadLearnedData() {
+    try {
+      const apiBase = await getApiBase();
+      const res = await fetch(`${apiBase}/corrections`);
+      if (res.ok) {
+        learnedDataStore = await res.json();
+        renderLearnedTable();
+      } else {
+        throw new Error('Failed to load corrections');
+      }
+    } catch (err) {
+      console.error('Error loading learned data:', err);
+      learnedBadge.textContent = 'Error loading';
+      learnedStatus.textContent = 'Could not load learned data. Is the backend running?';
+      learnedStatus.className = 'status-msg error';
+    }
+  }
+
+  function renderLearnedTable() {
+    const filter = (learnedSearch?.value || '').toLowerCase().trim();
+    const entries = Object.entries(learnedDataStore).filter(([label, val]) => {
+      if (!filter) return true;
+      return label.toLowerCase().includes(filter) || String(val).toLowerCase().includes(filter);
+    });
+
+    const totalCount = Object.keys(learnedDataStore).length;
+    learnedBadge.textContent = `${totalCount} learned field${totalCount !== 1 ? 's' : ''}`;
+
+    if (totalCount === 0) {
+      learnedTable.style.display = 'none';
+      learnedEmptyState.style.display = 'block';
+      if (clearAllLearnedBtn) clearAllLearnedBtn.style.display = 'none';
+      return;
+    }
+
+    learnedTable.style.display = 'table';
+    learnedEmptyState.style.display = 'none';
+    if (clearAllLearnedBtn) clearAllLearnedBtn.style.display = 'inline-block';
+
+    learnedBody.innerHTML = '';
+
+    if (entries.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="3" style="text-align: center; color: var(--text-muted); padding: 24px;">No fields match "${filter}"</td>`;
+      learnedBody.appendChild(emptyRow);
+      return;
+    }
+
+    entries.forEach(([label, value]) => {
+      const tr = document.createElement('tr');
+      tr.dataset.label = label;
+
+      tr.innerHTML = `
+        <td><span class="field-label-cell">${escapeHtml(label)}</span></td>
+        <td class="value-container">
+          <span class="field-value-cell">${escapeHtml(value || '(empty)')}</span>
+        </td>
+        <td style="text-align: right;">
+          <div class="action-group">
+            <button class="btn-icon edit-btn" title="Edit this value">✏️ Edit</button>
+            <button class="btn-icon delete-btn" title="Delete this learned field">🗑️ Delete</button>
+          </div>
+        </td>
+      `;
+
+      const editBtn = tr.querySelector('.edit-btn');
+      const deleteBtn = tr.querySelector('.delete-btn');
+      const valueContainer = tr.querySelector('.value-container');
+
+      editBtn.addEventListener('click', () => {
+        if (editBtn.classList.contains('save-btn')) {
+          // Save action
+          const input = valueContainer.querySelector('input');
+          if (input) {
+            saveSingleCorrection(label, input.value.trim(), tr);
+          }
+        } else {
+          // Enter Edit mode
+          const currentVal = learnedDataStore[label] || '';
+          valueContainer.innerHTML = `<input type="text" class="field-value-input" value="${escapeHtml(currentVal)}">`;
+          const input = valueContainer.querySelector('input');
+          input.focus();
+          input.select();
+
+          editBtn.textContent = '💾 Save';
+          editBtn.classList.add('save-btn');
+
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              saveSingleCorrection(label, input.value.trim(), tr);
+            } else if (e.key === 'Escape') {
+              renderLearnedTable();
+            }
+          });
+        }
+      });
+
+      deleteBtn.addEventListener('click', async () => {
+        if (confirm(`Are you sure you want to delete the learned value for "${label}"?`)) {
+          deleteSingleCorrection(label, tr);
+        }
+      });
+
+      learnedBody.appendChild(tr);
+    });
+  }
+
+  async function saveSingleCorrection(label, newValue, rowEl) {
+    try {
+      const apiBase = await getApiBase();
+      const res = await fetch(`${apiBase}/corrections`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field_label: label, corrected_value: newValue })
+      });
+      if (res.ok) {
+        learnedDataStore[label] = newValue;
+        showLearnedStatus(`Updated "${label}"`, 'success');
+        renderLearnedTable();
+      } else {
+        throw new Error('Update failed');
+      }
+    } catch (err) {
+      showLearnedStatus(`Failed to update "${label}"`, 'error');
+    }
+  }
+
+  async function deleteSingleCorrection(label, rowEl) {
+    try {
+      const apiBase = await getApiBase();
+      const res = await fetch(`${apiBase}/corrections/${encodeURIComponent(label)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        delete learnedDataStore[label];
+        showLearnedStatus(`Deleted "${label}"`, 'success');
+        renderLearnedTable();
+      } else {
+        throw new Error('Delete failed');
+      }
+    } catch (err) {
+      showLearnedStatus(`Failed to delete "${label}"`, 'error');
+    }
+  }
+
+  if (clearAllLearnedBtn) {
+    clearAllLearnedBtn.addEventListener('click', async () => {
+      const count = Object.keys(learnedDataStore).length;
+      if (count === 0) return;
+      if (confirm(`Are you sure you want to delete ALL ${count} learned field entries? This cannot be undone.`)) {
+        try {
+          const apiBase = await getApiBase();
+          const res = await fetch(`${apiBase}/corrections`, { method: 'DELETE' });
+          if (res.ok) {
+            learnedDataStore = {};
+            showLearnedStatus('All learned data cleared', 'success');
+            renderLearnedTable();
+          } else {
+            throw new Error('Clear failed');
+          }
+        } catch (err) {
+          showLearnedStatus('Failed to clear learned data', 'error');
+        }
+      }
+    });
+  }
+
+  if (learnedSearch) {
+    learnedSearch.addEventListener('input', () => {
+      renderLearnedTable();
+    });
+  }
+
+  function showLearnedStatus(msg, type = 'info') {
+    if (!learnedStatus) return;
+    learnedStatus.textContent = msg;
+    learnedStatus.className = `status-msg ${type}`;
+    setTimeout(() => {
+      if (learnedStatus.textContent === msg) {
+        learnedStatus.textContent = '';
+      }
+    }, 3000);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Load learned data on initial page load if tab is active
+  const activeTab = document.querySelector('.nav-btn.active');
+  if (activeTab && activeTab.getAttribute('data-tab') === 'tab-learned') {
+    loadLearnedData();
+  }
+
 });
+
