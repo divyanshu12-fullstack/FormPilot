@@ -25,22 +25,22 @@ const FIELD_TYPES = {
 };
 
 const FIELD_KEYWORDS = {
-  [FIELD_TYPES.FIRST_NAME]: ['first name', 'given name', 'fname'],
-  [FIELD_TYPES.LAST_NAME]: ['last name', 'family name', 'surname', 'lname'],
-  [FIELD_TYPES.FULL_NAME]: ['full name', 'your name', 'applicant name', 'candidate name'],
-  [FIELD_TYPES.EMAIL]: ['email', 'e-mail', 'email address'],
-  [FIELD_TYPES.PHONE]: ['phone', 'mobile', 'telephone', 'cell'],
-  [FIELD_TYPES.ADDRESS_LINE1]: ['address', 'street', 'street address', 'address line 1', 'line 1'],
-  [FIELD_TYPES.CITY]: ['city', 'town'],
-  [FIELD_TYPES.STATE]: ['state', 'province', 'region'],
-  [FIELD_TYPES.PINCODE]: ['zip', 'postal', 'pincode', 'zip code'],
-  [FIELD_TYPES.COUNTRY]: ['country', 'nation'],
+  [FIELD_TYPES.FIRST_NAME]: ['first name', 'given name', 'fname', 'forename'],
+  [FIELD_TYPES.LAST_NAME]: ['last name', 'family name', 'surname', 'lname', 'sur name'],
+  [FIELD_TYPES.FULL_NAME]: ['full name', 'your name', 'applicant name', 'candidate name', 'name', 'applicant full name'],
+  [FIELD_TYPES.EMAIL]: ['email', 'e-mail', 'email address', 'email id', 'e mail', 'mail', 'contact email'],
+  [FIELD_TYPES.PHONE]: ['phone', 'mobile', 'telephone', 'cell', 'tel', 'mob', 'phone number', 'contact number', 'contact'],
+  [FIELD_TYPES.ADDRESS_LINE1]: ['address', 'street', 'street address', 'address line 1', 'line 1', 'address line 2', 'line 2', 'address 2', 'address line'],
+  [FIELD_TYPES.CITY]: ['city', 'town', 'city town'],
+  [FIELD_TYPES.STATE]: ['state', 'province', 'region', 'county', 'state province'],
+  [FIELD_TYPES.PINCODE]: ['zip', 'postal', 'pincode', 'zip code', 'zipcode', 'pin code', 'pin', 'postal code'],
+  [FIELD_TYPES.COUNTRY]: ['country', 'nation', 'nationality'],
   [FIELD_TYPES.LINKEDIN_URL]: ['linkedin', 'linked in', 'linkedin profile', 'linkedin url'],
   [FIELD_TYPES.GITHUB_URL]: ['github', 'git hub', 'github url'],
-  [FIELD_TYPES.PORTFOLIO_URL]: ['portfolio', 'personal website', 'portfolio url', 'portfolio link'],
-  [FIELD_TYPES.CURRENT_TITLE]: ['current title', 'job title', 'designation', 'role'],
-  [FIELD_TYPES.CURRENT_COMPANY]: ['company', 'current company', 'employer'],
-  [FIELD_TYPES.EXPERIENCE_YEARS]: ['experience', 'years of experience', 'yoe'],
+  [FIELD_TYPES.PORTFOLIO_URL]: ['portfolio', 'personal website', 'portfolio url', 'portfolio link', 'website', 'personal site'],
+  [FIELD_TYPES.CURRENT_TITLE]: ['current title', 'job title', 'designation', 'role', 'position', 'title'],
+  [FIELD_TYPES.CURRENT_COMPANY]: ['company', 'current company', 'employer', 'organisation', 'organization', 'company name', 'org name', 'org'],
+  [FIELD_TYPES.EXPERIENCE_YEARS]: ['experience', 'years of experience', 'yoe', 'yrs', 'total experience', 'exp', 'work experience'],
   [FIELD_TYPES.WORK_AUTHORIZATION]: ['authorization', 'authorized', 'visa', 'sponsorship', 'sponsor', 'right to work'],
   [FIELD_TYPES.GENDER]: ['gender', 'sex', 'gender identity'],
   [FIELD_TYPES.VETERAN_STATUS]: ['veteran', 'military', 'protected veteran'],
@@ -73,16 +73,20 @@ const FIELD_SIGNATURES = {
 };
 
 // Enhancement 2: Abbreviation Maps for Fuzzy Dropdown Matching
+// NOTE: keys must be lowercase field types (FIELD_TYPES values), not uppercase.
 const ABBREVIATION_MAPS = {
-  COUNTRY: {
-    'US': ['United States', 'USA', 'United States of America'],
-    'IN': ['India', 'IND'],
-    'UK': ['United Kingdom', 'GB', 'Great Britain']
+  country: {
+    'us': ['United States', 'USA', 'United States of America'],
+    'in': ['India', 'IND'],
+    'uk': ['United Kingdom', 'GB', 'Great Britain'],
+    'ca': ['Canada', 'CAN'],
+    'au': ['Australia', 'AUS'],
+    'de': ['Germany', 'DEU', 'Deutschland']
   },
-  GENDER: {
-    'M': ['Male', 'Man'],
-    'F': ['Female', 'Woman'],
-    'O': ['Other', 'Non-binary', 'Decline to self-identify', 'Prefer not to say']
+  gender: {
+    'm': ['Male', 'Man'],
+    'f': ['Female', 'Woman'],
+    'o': ['Other', 'Non-binary', 'Decline to self-identify', 'Prefer not to say']
   }
 };
 

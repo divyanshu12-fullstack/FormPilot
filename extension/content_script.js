@@ -61,6 +61,48 @@ function injectHighlightStyles() {
       outline-offset: 2px !important;
       box-shadow: 0 0 8px rgba(43, 108, 176, 0.4) !important;
     }
+    .formpilot-sparkle {
+      position: fixed !important;
+      width: 22px !important;
+      height: 22px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 15px !important;
+      line-height: 1 !important;
+      cursor: pointer !important;
+      z-index: 2147483000 !important;
+      user-select: none !important;
+      background: #f8f0ea !important;
+      border: 1px solid #ae6a97 !important;
+      border-radius: 50% !important;
+      box-shadow: 0 1px 4px rgba(86, 29, 70, 0.25) !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+    .formpilot-sparkle:hover, .formpilot-sparkle:focus-visible {
+      transform: scale(1.15) !important;
+      outline: 2px solid #ae6a97 !important;
+      outline-offset: 1px !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .formpilot-sparkle { transition: none !important; }
+    }
+    #formpilot-draft-dialog {
+      position: fixed !important;
+      z-index: 2147483001 !important;
+      display: none;
+      background-color: #f8f0ea !important;
+      border: 2px solid #ae6a97 !important;
+      border-radius: 8px !important;
+      padding: 12px !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+      width: min(320px, 90vw) !important;
+      max-height: 80vh !important;
+      overflow: auto !important;
+      font-family: sans-serif !important;
+      box-sizing: border-box !important;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -266,8 +308,10 @@ function resolveMSFormsLabel(el) {
 function collectOptions(el) {
   if (el.tagName === 'SELECT') {
     return [...el.options]
-      .filter(o => o.value !== '')
-      .map(o => ({ value: o.value, text: o.textContent.trim() }));
+      // Keep placeholder-valued options too (some ATS use value="0"/text-only);
+      // fuzzyMatchOption prefers exact text match anyway. Only drop fully empty rows.
+      .filter(o => (o.value !== '' || (o.textContent || '').trim() !== ''))
+      .map(o => ({ value: o.value || o.textContent.trim(), text: o.textContent.trim() }));
   }
   if (el.getAttribute('role') === 'listbox') {
     const opts = el.querySelectorAll('[role="option"]');
@@ -287,8 +331,13 @@ function collectOptions(el) {
     }
     const inputRadios = el.querySelectorAll('input[type="radio"]');
     return [...inputRadios].map(r => {
-      const lbl = document.querySelector(`label[for="${CSS.escape(r.id)}"]`);
-      return { value: r.value, text: lbl ? lbl.textContent.trim() : r.value };
+      let lbl = null;
+      if (r.id) {
+        try { lbl = document.querySelector(`label[for="${CSS.escape(r.id)}"]`); } catch (e) { lbl = null; }
+      }
+      // Fallback: label wrapping without `for` (missed before).
+      if (!lbl && r.closest) lbl = r.closest('label');
+      return { value: r.value || (lbl ? lbl.textContent.trim() : ''), text: lbl ? lbl.textContent.trim() : (r.value || '') };
     });
   }
   return [];
@@ -328,6 +377,15 @@ function isDateField(field) {
   if (['date', 'datetime-local', 'month', 'time', 'week'].includes(t)) return true;
   if (el.classList && (el.classList.contains('hasDatepicker') || el.classList.contains('datepicker'))) return true;
   return false;
+}
+
+// Native date/time inputs (browser calendar UI) — never auto-fill or sparkle.
+// Text inputs with a JS datepicker class ARE allowed through to LLM/sparkle
+// for manual assist, since they accept typed text.
+function isNativeDateInput(field) {
+  if (!field || !field.element) return false;
+  const t = ((field.element.type || '') + '').toLowerCase();
+  return ['date', 'datetime-local', 'month', 'time', 'week'].includes(t);
 }
 
 const GenericAdapter = {
@@ -484,7 +542,7 @@ function collectFields() {
 // MUTATION OBSERVER — re-scans when new form elements appear (SPA support)
 // ═══════════════════════════════════════
 
-const FORM_SELECTORS = 'input, select, textarea, [role="listbox"], [role="radiogroup"], [role="combobox"], [role="textbox"]';
+const FORM_SELECTORS = 'input, select, textarea, [role="listbox"], [role="radiogroup"], [role="combobox"], [role="textbox"], [role="group"], [role="checkbox"], [contenteditable="true"]';
 
 const debouncedRescan = debounce(() => {
   const prev = cachedFields.length;
@@ -493,6 +551,8 @@ const debouncedRescan = debounce(() => {
     console.log(`[FormPilot] Rescan: ${prev} → ${cachedFields.length} fields`);
     chrome.runtime.sendMessage({ action: 'forms_detected', count: cachedFields.length }).catch(() => {});
   }
+  if (typeof pruneDetachedSparkles === 'function') pruneDetachedSparkles();
+  if (typeof scheduleSparkleReposition === 'function') scheduleSparkleReposition();
 }, 500);
 
 const domObserver = new MutationObserver((mutations) => {
@@ -532,44 +592,130 @@ function getProfileValue(type, profile) {
   return profile[type] || '';
 }
 
-const NEGATIVE_LABEL_KEYWORDS = [
-  'father', 'mother', 'parent', 'guardian', 'spouse', 'husband', 'wife',
-  'nominee', 'emergency', 'reference', 'referral', 'supervisor', 'manager',
-  'next of kin', 'secondary', 'alternate', 'other', 'previous', 'former'
+// ── Relaxed normalization: single helper shared by match + corrections ──
+// Lowercases, strips punctuation that breaks token-boundary checks
+// ("First Name:", "Email (Work)", "City/Town", "Phone-number" → plain words).
+function normalizeLabel(raw) {
+  let s = (raw || '').toLowerCase();
+  s = s.replace(/\xa0/g, ' ');
+  // Turn common separators/punctuation into spaces so "city/town",
+  // "phone-number", "email (work)", "first_name" all tokenize cleanly.
+  s = s.replace(/[*_:;,()\/\\\-_.?!"'&|+@#%[\]{}<>]/g, ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+function normalizeSig(raw) {
+  return normalizeLabel(raw).replace(/\s+/g, '');
+}
+
+// Token-boundary check that avoids substring false positives
+// (e.g. "other" should not match inside "mother"/"another").
+function labelHasToken(label, token) {
+  if (!label || !token) return false;
+  if (label === token) return true;
+  return label.includes(` ${token} `) || label.startsWith(`${token} `) || label.endsWith(` ${token}`);
+}
+
+// True other-person fields: always block. Everything else is soft and
+// requires section context too (see matchField below).
+const HARD_NEGATIVE_LABEL_KEYWORDS = [
+  'father', 'mother', 'spouse', 'husband', 'wife',
+  'guardian', 'nominee', 'emergency', 'next of kin'
 ];
 
+const SOFT_NEGATIVE_LABEL_KEYWORDS = [
+  'reference', 'referral', 'supervisor', 'manager',
+  'secondary', 'alternate', 'other', 'previous', 'former',
+  'parent', 'family'
+];
+
+// Back-compat alias (was a single hard list before the relax pass).
+const NEGATIVE_LABEL_KEYWORDS = [
+  ...HARD_NEGATIVE_LABEL_KEYWORDS,
+  ...SOFT_NEGATIVE_LABEL_KEYWORDS
+];
+
+function sectionHasToken(section, token) {
+  return labelHasToken(section, token);
+}
+
 function matchField(field, profile, corrections = {}) {
-  const section = field.sectionContext.toLowerCase();
+  const section = normalizeLabel(field.sectionContext || '');
+  // Section skip now uses token match (not raw substring) to avoid
+  // e.g. "References" blocking the applicant's own "Reference Number".
   for (const skip of SKIP_SECTIONS) {
-    if (section.includes(skip)) return null;
+    if (sectionHasToken(section, normalizeLabel(skip))) return null;
   }
 
-  // Normalize label
-  let label = (field.labelText || field.placeholder || field.ariaLabel || '').toLowerCase();
-  label = label.replace(/\xa0/g, ' ').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+  // Normalize label (shared helper — same as corrections tracker)
+  const label = normalizeLabel(field.labelText || field.placeholder || field.ariaLabel || '');
 
-  // Skip fields whose labels indicate they belong to someone else
-  for (const neg of NEGATIVE_LABEL_KEYWORDS) {
-    if (label.includes(neg)) return null;
+  // Hard block: fields that belong to someone else, regardless of section.
+  for (const neg of HARD_NEGATIVE_LABEL_KEYWORDS) {
+    if (labelHasToken(label, neg)) return null;
+  }
+  // Soft block: only reject when the section ALSO looks like another
+  // person's section (e.g. "Emergency Contact" + "Phone"). A bare
+  // "Reference Number" or "Secondary Email" in a normal section fills.
+  for (const neg of SOFT_NEGATIVE_LABEL_KEYWORDS) {
+    if (!labelHasToken(label, neg)) continue;
+    let sectionConfirms = false;
+    for (const skip of SKIP_SECTIONS) {
+      if (sectionHasToken(section, normalizeLabel(skip))) { sectionConfirms = true; break; }
+    }
+    if (sectionConfirms) return null;
+    // Also block classic "X's Y" other-person phrasing even without section,
+    // e.g. "father name", "spouse phone", "manager email".
+    // Soft words alone ("other", "previous") do NOT block here.
+    let otherPersonCue = false;
+    for (const hard of HARD_NEGATIVE_LABEL_KEYWORDS) {
+      if (labelHasToken(label, hard)) { otherPersonCue = true; break; }
+    }
+    if (otherPersonCue) return null;
   }
 
-  // 1. Check corrections FIRST
-  if (corrections && corrections[label] !== undefined) {
-    return { type: 'correction', value: corrections[label] };
-  }
-
-  // 2. Check signatures
-  for (const [sig, type] of Object.entries(FIELD_SIGNATURES)) {
-    if (field.name === sig || field.id === sig) {
-      return { type, value: getProfileValue(type, profile) };
+  // 1. Check corrections FIRST (exact + normalized fallback)
+  if (corrections) {
+    if (corrections[label] !== undefined) {
+      return { type: 'correction', value: corrections[label] };
+    }
+    // Fallback: corrections saved with slightly different punctuation/
+    // casing ("Email Address *" vs "email address") still hit.
+    for (const [savedLabel, savedValue] of Object.entries(corrections)) {
+      if (normalizeLabel(savedLabel) === label) {
+        return { type: 'correction', value: savedValue };
+      }
     }
   }
 
-  // 3. Keyword mapping
+  // 2. Check signatures (case-insensitive + punctuation-insensitive)
+  const normName = normalizeSig(field.name || '');
+  const normId = normalizeSig(field.id || '');
+  for (const [sig, type] of Object.entries(FIELD_SIGNATURES)) {
+    const normSig = normalizeSig(sig);
+    if (!normSig) continue;
+    if (normName === normSig || normId === normSig
+      || (normName && normName.includes(normSig))
+      || (normId && normId.includes(normSig))) {
+      const value = getProfileValue(type, profile);
+      // Empty profile value → treat as miss so LLM/sparkle can try,
+      // instead of a silent fillField failure.
+      if (value === '' || value === null || value === undefined) return null;
+      return { type, value };
+    }
+  }
+
+  // 3. Keyword mapping (label + keywords both normalized, so punctuation
+  // no longer breaks matches; still token-boundary to limit false positives)
   for (const [type, keywords] of Object.entries(FIELD_KEYWORDS)) {
-    for (const kw of keywords) {
-      if (label === kw || label.includes(` ${kw} `) || label.startsWith(`${kw} `) || label.endsWith(` ${kw}`)) {
-        return { type, value: getProfileValue(type, profile) };
+    for (const rawKw of keywords) {
+      const kw = normalizeLabel(rawKw);
+      if (!kw) continue;
+      if (labelHasToken(label, kw)) {
+        const value = getProfileValue(type, profile);
+        if (value === '' || value === null || value === undefined) return null;
+        return { type, value };
       }
     }
   }
@@ -578,39 +724,63 @@ function matchField(field, profile, corrections = {}) {
 }
 
 function fuzzyMatchOption(options, targetValue, fieldType) {
-  targetValue = targetValue.toLowerCase();
+  targetValue = (targetValue || '').toLowerCase().trim();
+  if (!targetValue) return null;
   
   // 1. Exact match
-  let match = options.find(o => (o.text || '').toLowerCase() === targetValue || (o.value || '').toLowerCase() === targetValue);
+  let match = options.find(o => (o.text || '').toLowerCase().trim() === targetValue || (o.value || '').toLowerCase().trim() === targetValue);
   if (match) return match;
   
-  // 2. Abbreviation map
-  let mappedValue = targetValue;
-  if (fieldType && ABBREVIATION_MAPS[fieldType]) {
-    for (const [abbr, vars] of Object.entries(ABBREVIATION_MAPS[fieldType])) {
+  // 2. Abbreviation map (keys are lowercase field types — see constants.js)
+  const abbrMap = fieldType ? ABBREVIATION_MAPS[fieldType] || ABBREVIATION_MAPS[String(fieldType).toLowerCase()] : null;
+  if (abbrMap) {
+    // Sort entries so longer/specific variants match first. In particular
+    // "Female" must be tried before "Male" — otherwise "male".includes
+    // style fallback matches the wrong option.
+    const entries = Object.entries(abbrMap).sort((a, b) => {
+      const aLen = Math.max(a[0].length, ...a[1].map(v => v.length));
+      const bLen = Math.max(b[0].length, ...b[1].map(v => v.length));
+      return bLen - aLen;
+    });
+    for (const [abbr, vars] of entries) {
       if (abbr.toLowerCase() === targetValue || vars.some(v => v.toLowerCase() === targetValue)) {
-        mappedValue = abbr.toLowerCase(); // standardize to abbreviation for matching
+        const mappedValue = abbr.toLowerCase(); // standardize to abbreviation for matching
         // Let's try finding the abbreviation in the options
-        let abbrMatch = options.find(o => (o.text || '').toLowerCase() === mappedValue || (o.value || '').toLowerCase() === mappedValue);
+        let abbrMatch = options.find(o => (o.text || '').toLowerCase().trim() === mappedValue || (o.value || '').toLowerCase().trim() === mappedValue);
         if (abbrMatch) return abbrMatch;
         // Or one of its variants
-        for(let v of vars) {
-           let varMatch = options.find(o => (o.text || '').toLowerCase() === v.toLowerCase() || (o.value || '').toLowerCase() === v.toLowerCase());
-           if(varMatch) return varMatch;
+        for (let v of vars) {
+           let varMatch = options.find(o => (o.text || '').toLowerCase().trim() === v.toLowerCase() || (o.value || '').toLowerCase().trim() === v.toLowerCase());
+           if (varMatch) return varMatch;
         }
       }
     }
   }
 
-  // 3. Includes
-  match = options.find(o => (o.text || '').toLowerCase().includes(targetValue) || targetValue.includes((o.text || '').toLowerCase()));
+  // 3. Includes — exact-substring only when one side is clearly longer,
+  // to avoid "M" matching "Female"/"Male"/"India" style false positives.
+  // Require the shorter side to be at least 3 chars.
+  match = options.find(o => {
+    const t = (o.text || '').toLowerCase().trim();
+    if (!t || t.length < 3 || targetValue.length < 3) return false;
+    // Prefer word-boundary includes over raw substring.
+    if (t === targetValue) return true;
+    if (t.includes(targetValue) || targetValue.includes(t)) {
+      // Guard: single-token gender edge ("male" vs "female").
+      if ((targetValue === 'male' && t === 'female') || (targetValue === 'female' && t === 'male')) return false;
+      return true;
+    }
+    return false;
+  });
   if (match) return match;
   
   return null;
 }
 
 async function fillField(field, matchData) {
-  if (!matchData.value) return false;
+  if (!matchData || matchData.value === '' || matchData.value === null || matchData.value === undefined) return false;
+  // Treat whitespace-only as empty (prevents silent "match but no fill").
+  if (typeof matchData.value === 'string' && matchData.value.trim() === '') return false;
   const el = field.element;
   const val = matchData.value;
   
@@ -624,6 +794,16 @@ async function fillField(field, matchData) {
       }
       return false;
     } else {
+      // contenteditable / role=textbox widgets have no .value setter
+      if (el.isContentEditable || el.getAttribute('role') === 'textbox' || el.getAttribute('contenteditable') === 'true') {
+        try {
+          el.focus();
+          el.textContent = val;
+          el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        } catch (e) { return false; }
+      }
       try {
         const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
@@ -727,8 +907,13 @@ let isAutoFilling = false;
 const filledFieldsMap = new WeakMap();
 
 function isSensitiveField(label) {
-  const lower = label.toLowerCase();
-  for (const kw of SENSITIVE_FIELD_KEYWORDS) {
+  const lower = normalizeLabel(label);
+  for (const rawKw of SENSITIVE_FIELD_KEYWORDS) {
+    const kw = normalizeLabel(rawKw);
+    if (!kw) continue;
+    // Fail-closed: substring on normalized text (catches "cardno",
+    // "card-number", "security_code" variants). Deliberately stricter
+    // than the token match used for soft negative guards.
     if (lower.includes(kw)) return true;
   }
   return false;
@@ -755,8 +940,7 @@ function sendCorrection(label, value) {
 function trackFieldCorrections(field, filledValue) {
   const el = field.element;
   
-  let label = (field.labelText || field.placeholder || field.ariaLabel || '').toLowerCase();
-  label = label.replace(/\xa0/g, ' ').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+  const label = normalizeLabel(field.labelText || field.placeholder || field.ariaLabel || '');
   if (!label) return;
 
   // Never track sensitive fields
@@ -842,7 +1026,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const unmatchedFields = [];
       const unmatchedLabels = [];
 
-      // 1. Heuristic & Correction Phase
+       // 1. Heuristic & Correction Phase
       for (const field of fields) {
         const match = matchField(field, message.profile, corrections);
         if (match) {
@@ -858,9 +1042,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
              applyHighlight(field.element, 'high');
            }
         } else {
-           // Skip sensitive fields and date fields from LLM fallback
+           // Skip sensitive fields and native date inputs from LLM fallback.
+           // Text inputs with a JS datepicker class still go through so the
+           // user gets manual sparkle assist.
            let label = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
-           if (label && !isSensitiveField(label) && field.element.type !== 'password' && !isDateField(field)) {
+           if (label && !isSensitiveField(label) && field.element.type !== 'password' && !isNativeDateInput(field)) {
              unmatchedFields.push(field);
              unmatchedLabels.push(label);
            }
@@ -880,8 +1066,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const mappings = llmResp.mappings;
             
             for (const field of unmatchedFields) {
-              let label = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
-              const mappedKey = mappings[label];
+              const label = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
+              // LLM often drifts on case/whitespace/punctuation
+              // ("Email Address *" vs "email address") — normalize both sides.
+              let mappedKey;
+              if (Object.prototype.hasOwnProperty.call(mappings, label)) {
+                mappedKey = mappings[label];
+              } else {
+                const normLabel = normalizeLabel(label);
+                for (const [rawKey, val] of Object.entries(mappings)) {
+                  if (normalizeLabel(rawKey) === normLabel) { mappedKey = val; break; }
+                }
+              }
               
               if (mappedKey === null || mappedKey === 'null') {
                  if (fpSettings.autoDraftMode) {
@@ -892,13 +1088,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         questions: [label],
                         user_context: '',
                         use_profile: true
-                     }, async (resp) => {
-                        if (resp && resp.success && resp.drafts && resp.drafts[label]) {
-                          const draftedText = resp.drafts[label];
-                          await fillField(field, { value: draftedText, type: 'llm' });
-                          applyHighlight(field.element, 'draft');
-                        }
-                     });
+                      }, async (resp) => {
+                         if (resp && resp.success && resp.drafts) {
+                           const draftedText = resp.drafts[label]
+                             ?? resp.drafts[Object.keys(resp.drafts).find(k => normalizeLabel(k) === normalizeLabel(label))];
+                           if (!draftedText) return;
+                           await fillField(field, { value: draftedText, type: 'llm' });
+                           applyHighlight(field.element, 'draft');
+                         }
+                      });
                    } catch (e) {
                      console.error('[FormPilot] Auto-draft failed for', label, e);
                    }
@@ -940,14 +1138,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 } else {
                    console.log(`[FormPilot] No data found in profile/resume for key: ${mappedKey}`);
                 }
+              } else if (mappedKey === undefined) {
+                // LLM returned no entry for this label (key drift beyond
+                // normalization, or empty mappings on error) — still offer
+                // manual assist instead of silently dropping the field.
+                if (!fpSettings.autoDraftMode) injectSparkleIcon(field, label);
               }
             }
           } else {
              const errMsg = (llmResp && llmResp.error) ? llmResp.error : JSON.stringify(llmResp);
              console.error('[FormPilot] Failed to get LLM mappings:', errMsg);
+             // Offline/LLM-down: every unmatched field still gets manual assist.
+             if (!fpSettings.autoDraftMode) {
+               for (const field of unmatchedFields) {
+                 const lbl = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
+                 if (lbl) injectSparkleIcon(field, lbl);
+               }
+             }
           }
         } catch (e) {
           console.error('[FormPilot] LLM Fallback failed:', e);
+          if (!fpSettings.autoDraftMode) {
+            for (const field of unmatchedFields) {
+              const lbl = (field.labelText || field.placeholder || field.ariaLabel || '').trim();
+              if (lbl) injectSparkleIcon(field, lbl);
+            }
+          }
         }
       }
 
@@ -971,11 +1187,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'scroll_to_review') {
     const el = document.querySelector('[data-formpilot-highlight="medium"], [data-formpilot-highlight="draft"], .formpilot-sparkle');
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // Blink effect
-      const origOutline = el.style.outline;
-      el.style.outline = '3px solid #ae6a97';
-      setTimeout(() => el.style.outline = origOutline, 1500);
+      // Sparkles are position:fixed — scroll their anchor field instead.
+      const target = (el.classList && el.classList.contains('formpilot-sparkle') && el.fieldRef && el.fieldRef.element) ? el.fieldRef.element : el;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Blink effect (skip sparkles — their outline is part of the badge style)
+      if (!el.classList || !el.classList.contains('formpilot-sparkle')) {
+        const origOutline = el.style.outline;
+        el.style.outline = '3px solid #ae6a97';
+        setTimeout(() => el.style.outline = origOutline, 1500);
+      }
     }
     sendResponse({ success: true });
     return true;
@@ -985,26 +1205,127 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 let currentDraftField = null;
+let currentSparkleEl = null;
+const sparkleRegistry = []; // { sparkle, field, label, anchor }
+let sparkleReposScheduled = false;
+
+function getSparkleAnchor(field) {
+  const el = field.element;
+  if (!el) return null;
+  // For grouped custom widgets, anchor to the first visible inner control
+  // instead of the whole group container (fixes vertical mis-centering).
+  if (field.isCustomWidget && (field.widgetRole === 'radiogroup' || field.widgetRole === 'checkboxgroup' || field.widgetRole === 'listbox' || field.widgetRole === 'combobox')) {
+    const inner = el.querySelector('input:not([type="hidden"]), [role="radio"], [role="checkbox"], [role="option"], [role="textbox"]');
+    if (inner && isVisible(inner)) return inner;
+  }
+  return el;
+}
+
+function positionSparkle(entry) {
+  const { sparkle, field } = entry;
+  const anchor = getSparkleAnchor(field);
+  if (!anchor || !document.contains(anchor) || !isVisible(anchor)) {
+    sparkle.style.display = 'none';
+    return;
+  }
+  if (sparkle.dataset.fpDone === 'true') return;
+  const rect = anchor.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) { sparkle.style.display = 'none'; return; }
+  sparkle.style.display = 'flex';
+  // Wide text-like fields: badge sits inside the right edge (with padding
+  // reserved on the field so text isn't covered). Narrow/small widgets or
+  // custom groups: badge floats just outside to avoid covering arrows/boxes.
+  const isTextLike = !field.isCustomWidget && (anchor.tagName === 'INPUT' || anchor.tagName === 'TEXTAREA' || anchor.tagName === 'SELECT');
+  if (isTextLike && rect.width > 80) {
+    sparkle.style.left = (rect.right - 28) + 'px';
+    sparkle.style.top = (rect.top + rect.height / 2 - 11) + 'px';
+  } else {
+    sparkle.style.left = (rect.right + 4) + 'px';
+    sparkle.style.top = (rect.top + rect.height / 2 - 11) + 'px';
+  }
+}
+
+function scheduleSparkleReposition() {
+  if (sparkleReposScheduled) return;
+  sparkleReposScheduled = true;
+  requestAnimationFrame(() => {
+    sparkleReposScheduled = false;
+    for (const entry of sparkleRegistry) positionSparkle(entry);
+    // Keep open dialog pinned to its sparkle; close if anchor is gone.
+    const dialog = document.getElementById('formpilot-draft-dialog');
+    if (dialog && dialog.style.display === 'block' && currentSparkleEl) {
+      if (!document.contains(currentSparkleEl) || currentSparkleEl.style.display === 'none') {
+        dialog.style.display = 'none';
+      } else {
+        positionDraftDialog(currentSparkleEl);
+      }
+    }
+  });
+}
+
+function pruneDetachedSparkles() {
+  for (let i = sparkleRegistry.length - 1; i >= 0; i--) {
+    const entry = sparkleRegistry[i];
+    const anchor = entry.field.element;
+    if (!anchor || !document.contains(anchor)) {
+      entry.sparkle.remove();
+      sparkleRegistry.splice(i, 1);
+    }
+  }
+}
+
+function positionDraftDialog(sparkleEl) {
+  const dialog = document.getElementById('formpilot-draft-dialog');
+  if (!dialog || !sparkleEl) return;
+  const sRect = sparkleEl.getBoundingClientRect();
+  const dialogWidth = Math.min(320, Math.floor(window.innerWidth * 0.9));
+  const estHeight = dialog.offsetHeight > 10 ? dialog.offsetHeight : 230;
+  let dLeft = Math.round(sRect.left - dialogWidth + 20);
+  dLeft = Math.max(10, Math.min(dLeft, window.innerWidth - dialogWidth - 10));
+  let dTop = Math.round(sRect.bottom + 6);
+  if (dTop + estHeight > window.innerHeight - 10) {
+    dTop = Math.round(sRect.top - estHeight - 6);
+  }
+  if (dTop < 10) dTop = 10;
+  dialog.style.left = dLeft + 'px';
+  dialog.style.top = dTop + 'px';
+}
+
+function openDraftDialog(field, label, sparkleEl) {
+  currentDraftField = field;
+  currentSparkleEl = sparkleEl || null;
+  const dialog = document.getElementById('formpilot-draft-dialog');
+  if (!dialog) return;
+  document.getElementById('formpilot-draft-label').textContent = label;
+  document.getElementById('formpilot-draft-context').value = '';
+  dialog.style.display = 'block';
+  positionDraftDialog(sparkleEl);
+  const ta = document.getElementById('formpilot-draft-context');
+  if (ta) ta.focus();
+}
+
+function closeDraftDialog(returnFocus = true) {
+  const dialog = document.getElementById('formpilot-draft-dialog');
+  if (dialog) dialog.style.display = 'none';
+  if (returnFocus && currentSparkleEl && document.contains(currentSparkleEl)) {
+    currentSparkleEl.focus({ preventScroll: true });
+  }
+  currentDraftField = null;
+  currentSparkleEl = null;
+}
 
 function createDraftDialog() {
   if (document.getElementById('formpilot-draft-dialog')) return;
   
   const dialog = document.createElement('div');
   dialog.id = 'formpilot-draft-dialog';
-  dialog.style.position = 'absolute';
-  dialog.style.zIndex = '10000';
-  dialog.style.display = 'none';
-  dialog.style.backgroundColor = '#f8f0ea';
-  dialog.style.border = '2px solid #ae6a97';
-  dialog.style.borderRadius = '8px';
-  dialog.style.padding = '12px';
-  dialog.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-  dialog.style.width = '300px';
-  dialog.style.fontFamily = 'sans-serif';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'false');
+  dialog.setAttribute('aria-labelledby', 'formpilot-draft-label');
   
   dialog.innerHTML = `
     <div style="font-weight: bold; color: #ae6a97; margin-bottom: 8px; font-size: 14px;" id="formpilot-draft-label">Question</div>
-    <textarea id="formpilot-draft-context" style="width: 100%; height: 60px; border: 1px solid #eca8bb; border-radius: 4px; padding: 4px; font-size: 13px; margin-bottom: 8px; box-sizing: border-box;" placeholder="e.g. I was preparing for JEE exams, add this in formal tone in 2-3 lines"></textarea>
+    <textarea id="formpilot-draft-context" aria-label="Guidance for AI draft" style="width: 100%; height: 60px; border: 1px solid #eca8bb; border-radius: 4px; padding: 4px; font-size: 13px; margin-bottom: 8px; box-sizing: border-box;" placeholder="e.g. I was preparing for JEE exams, add this in formal tone in 2-3 lines"></textarea>
     <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 8px; color: #333; cursor: pointer;">
       <input type="checkbox" id="formpilot-draft-profile" checked style="margin-right: 4px;"> Include my profile/resume context
     </label>
@@ -1017,7 +1338,24 @@ function createDraftDialog() {
   
   document.getElementById('formpilot-draft-cancel').addEventListener('click', (e) => {
     e.preventDefault();
-    dialog.style.display = 'none';
+    closeDraftDialog(true);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const dlg = document.getElementById('formpilot-draft-dialog');
+    if (dlg && dlg.style.display === 'block' && e.key === 'Escape') {
+      e.stopPropagation();
+      closeDraftDialog(true);
+    }
+  });
+
+  // Click-outside dismisses (but not the sparkle click that opened it).
+  document.addEventListener('pointerdown', (e) => {
+    const dlg = document.getElementById('formpilot-draft-dialog');
+    if (!dlg || dlg.style.display !== 'block') return;
+    if (dlg.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.formpilot-sparkle')) return;
+    closeDraftDialog(false);
   });
   
   document.getElementById('formpilot-draft-submit').addEventListener('click', async (e) => {
@@ -1040,16 +1378,23 @@ function createDraftDialog() {
         }, resolve);
       });
       
-      if (resp && resp.success && resp.drafts && resp.drafts[label]) {
-        const draftedText = resp.drafts[label];
+      const draftedText = resp && resp.success && resp.drafts
+        ? (resp.drafts[label] ?? resp.drafts[Object.keys(resp.drafts).find(k => normalizeLabel(k) === normalizeLabel(label))])
+        : null;
+      if (draftedText) {
         if (currentDraftField) {
            await fillField(currentDraftField, { value: draftedText, type: 'llm' });
            applyHighlight(currentDraftField.element, 'draft');
            dialog.style.display = 'none';
-           const sparkles = document.querySelectorAll('.formpilot-sparkle');
-           sparkles.forEach(s => {
-             if (s.fieldRef === currentDraftField) s.style.display = 'none';
-           });
+           const doneField = currentDraftField;
+           for (const entry of sparkleRegistry) {
+             if (entry.field === doneField) {
+               entry.sparkle.dataset.fpDone = 'true';
+               entry.sparkle.style.display = 'none';
+             }
+           }
+           currentDraftField = null;
+           currentSparkleEl = null;
         }
       } else {
         alert('FormPilot: Failed to draft answer.');
@@ -1066,56 +1411,55 @@ function createDraftDialog() {
 
 function injectSparkleIcon(field, label) {
   if (!field || !field.element) return;
-  if (isDateField(field)) return; // Never attach Sparkle icon to date/calendar fields
+  // Never attach to native date/time pickers (browser calendar UI).
+  // Text inputs with a JS datepicker class still get assist.
+  if (isNativeDateInput(field)) return;
   if (field.element.dataset.fpSparkle) return;
   field.element.dataset.fpSparkle = 'true';
-  
-  // Use a wrapper to position the sparkle relative to the field
-  const parent = field.element.parentElement;
-  if (!parent) return;
-  
-  // Ensure parent has relative positioning for sparkle placement
-  const parentPosition = window.getComputedStyle(parent).position;
-  if (parentPosition === 'static') {
-    parent.style.position = 'relative';
+
+  // Reserve right padding on wide text fields so the inside badge
+  // doesn't cover typed text. Stored once; host layout otherwise untouched
+  // (no parent position mutation — badge is body-level position:fixed).
+  const anchor = getSparkleAnchor(field) || field.element;
+  if (!field.isCustomWidget && (anchor.tagName === 'INPUT' || anchor.tagName === 'TEXTAREA')) {
+    try {
+      const rect = anchor.getBoundingClientRect();
+      const cs = window.getComputedStyle(anchor);
+      if (rect.width > 80 && parseFloat(cs.paddingRight || '0') < 26) {
+        if (!anchor.dataset.fpOrigPad) anchor.dataset.fpOrigPad = cs.paddingRight || '';
+        anchor.style.paddingRight = '28px';
+      }
+    } catch (e) { /* non-fatal */ }
   }
   
   const sparkle = document.createElement('div');
   sparkle.className = 'formpilot-sparkle';
   sparkle.textContent = '✨';
-  sparkle.style.position = 'absolute';
-  sparkle.style.right = '4px';
-  sparkle.style.top = '50%';
-  sparkle.style.transform = 'translateY(-50%)';
-  sparkle.style.cursor = 'pointer';
-  sparkle.style.zIndex = '9999';
-  sparkle.style.fontSize = '16px';
-  sparkle.style.transition = 'transform 0.2s';
-  sparkle.style.pointerEvents = 'auto';
-  sparkle.fieldRef = field; 
-  
-  sparkle.addEventListener('mouseenter', () => sparkle.style.transform = 'translateY(-50%) scale(1.2)');
-  sparkle.addEventListener('mouseleave', () => sparkle.style.transform = 'translateY(-50%) scale(1)');
-  
-  sparkle.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    currentDraftField = field;
-    const dialog = document.getElementById('formpilot-draft-dialog');
-    document.getElementById('formpilot-draft-label').textContent = label;
-    document.getElementById('formpilot-draft-context').value = '';
-    
-    const sRect = sparkle.getBoundingClientRect();
-    // Position dialog relative to sparkle, ensure it doesn't go off left screen
-    let dLeft = sRect.left + window.scrollX - 280;
-    if (dLeft < 10) dLeft = 10;
-    dialog.style.left = dLeft + 'px';
-    dialog.style.top = (sRect.bottom + window.scrollY + 5) + 'px';
-    dialog.style.display = 'block';
+  sparkle.setAttribute('role', 'button');
+  sparkle.setAttribute('tabindex', '0');
+  sparkle.setAttribute('aria-label', `Draft with AI for: ${label}`);
+  sparkle.setAttribute('title', 'Draft with AI');
+  sparkle.fieldRef = field;
+
+  const entry = { sparkle, field, label, anchor };
+  sparkleRegistry.push(entry);
+
+  const open = (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    openDraftDialog(field, label, sparkle);
+  };
+  sparkle.addEventListener('click', open);
+  sparkle.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') open(e);
   });
   
-  parent.appendChild(sparkle);
+  document.body.appendChild(sparkle);
+  positionSparkle(entry);
 }
+
+// Keep badges pinned without mutating host layout.
+window.addEventListener('scroll', scheduleSparkleReposition, { capture: true, passive: true });
+window.addEventListener('resize', scheduleSparkleReposition);
 
 // ═══════════════════════════════════════
 // INIT

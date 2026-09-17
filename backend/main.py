@@ -17,13 +17,20 @@ load_dotenv()
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 
+from contextlib import asynccontextmanager
+
 from db import engine, profile, resume, corrections, init_db
 
 class CorrectionRequest(BaseModel):
     field_label: str
     corrected_value: str
 
-app = FastAPI(title="FormPilot API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+app = FastAPI(title="FormPilot API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,10 +93,6 @@ class ProfileSchema(BaseModel):
     gender: Optional[str] = None
     veteran_status: Optional[str] = None
     disability_status: Optional[str] = None
-
-@app.on_event("startup")
-def startup_event():
-    init_db()
 
 @app.get("/ping")
 def ping():
@@ -289,7 +292,9 @@ Example: {{"What is your primary phone?": "profile.phone", "Tell us about your p
         return {"mappings": mappings}
     except Exception as e:
         print(f"Error mapping fields: {e}")
-        return {"mappings": {}}
+        # Return explicit nulls so the extension still shows manual
+        # sparkle assist instead of silently dropping the fields.
+        return {"mappings": {label: None for label in req.unmatched_labels}}
 
 @app.post("/corrections")
 def upsert_correction(data: CorrectionRequest):
