@@ -1,12 +1,13 @@
 import datetime
 import io
 import os
+import re
 import httpx
 import json
 from typing import Optional, List
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator
 import pdfplumber
 import docx
 from sqlalchemy import select, insert, update, delete
@@ -24,6 +25,7 @@ from db import engine, profile, resume, corrections, init_db
 class CorrectionRequest(BaseModel):
     field_label: str
     corrected_value: str
+    field_kind: str = "value"  # "value" (plain text) | "option" (a choice label)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,6 +95,85 @@ class ProfileSchema(BaseModel):
     gender: Optional[str] = None
     veteran_status: Optional[str] = None
     disability_status: Optional[str] = None
+    # ── Choice-control fields ──
+    # Extra keys are preserved rather than silently dropped, so a field added
+    # to options.html can never be accepted by the UI and then discarded here.
+    # (This is how "cgpa" was being lost: the input existed, the schema did not.)
+    model_config = ConfigDict(extra="allow")
+
+    dob: Optional[str] = None
+    cgpa: Optional[str] = None
+    degree: Optional[str] = None
+    branch: Optional[str] = None
+    college_name: Optional[str] = None
+    graduation_year: Optional[str] = None
+    tenth_percent: Optional[str] = None
+    twelfth_percent: Optional[str] = None
+    skills: Optional[List[str]] = None
+    languages: Optional[List[str]] = None
+    notice_period_days: Optional[int] = None
+    preferred_location: Optional[str] = None
+    relocation_ok: Optional[str] = None
+    remote_work_ok: Optional[str] = None
+    total_experience_months: Optional[int] = None
+    marital_status: Optional[str] = None
+    blood_group: Optional[str] = None
+
+    @field_validator("skills", "languages", mode="before")
+    @classmethod
+    def _split_list(cls, v):
+        """The settings form sends a comma-separated string; the API and the
+        resume parser send a real list. Accept either."""
+        if v is None or isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None
+            if s.startswith("["):
+                try:
+                    parsed = json.loads(s)
+                    if isinstance(parsed, list):
+                        return parsed
+                except (ValueError, TypeError):
+                    pass
+            return [item.strip() for item in re.split(r"[,;\n|]", s) if item.strip()]
+        return v
+
+
+# Columns stored as TEXT but handed to the extension as a real list, so
+# "select all that apply" can be matched element by element.
+LIST_COLUMNS = {"skills", "languages"}
+
+
+def _encode_column(name, value):
+    """JSON-encode list columns; pass everything else through."""
+    if value is None:
+        return None
+    if name in LIST_COLUMNS:
+        if isinstance(value, str):
+            items = [v.strip() for v in re.split(r"[,;\n|]", value) if v.strip()]
+        elif isinstance(value, list):
+            items = [str(v).strip() for v in value if str(v).strip()]
+        else:
+            items = [str(value).strip()]
+        return json.dumps(items)
+    return value
+
+
+def _decode_row(row):
+    """Turn a profile row into the JSON shape the extension expects."""
+    if not row:
+        return {}
+    data = dict(row)
+    for name in LIST_COLUMNS:
+        raw = data.get(name)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                data[name] = json.loads(raw)
+            except (ValueError, TypeError):
+                data[name] = [v.strip() for v in re.split(r"[,;\n|]", raw) if v.strip()]
+    return data
 
 @app.get("/ping")
 def ping():
@@ -104,20 +185,27 @@ def get_profile():
         with engine.connect() as conn:
             query = select(profile).where(profile.c.id == 1)
             result = conn.execute(query).mappings().first()
-            if result:
-                return dict(result)
-            return {}
+            return _decode_row(result)
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
 @app.post("/profile")
 def upsert_profile(data: ProfileSchema):
     try:
+        # exclude_unset keeps a partial save from blanking fields the user
+        # never touched; extras are kept so nothing the UI sent is lost.
+        values = data.model_dump(exclude_unset=True)
+        if not values:
+            return {"status": "noop", "data": {}}
+
+        # Only write columns the table actually has.
+        known = set(profile.c.keys())
+        values = {k: v for k, v in values.items() if k in known}
+        values = {k: _encode_column(k, v) for k, v in values.items()}
+
         with engine.connect() as conn:
             query = select(profile).where(profile.c.id == 1)
             exists = conn.execute(query).first()
-            
-            values = data.model_dump()
             if exists:
                 stmt = update(profile).where(profile.c.id == 1).values(**values)
                 conn.execute(stmt)
@@ -171,14 +259,21 @@ The JSON must have this exact structure:
 {
   "profile_data": {
     "first_name": "str", "last_name": "str", "email": "str", "phone": "str",
+    "dob": "str (YYYY-MM-DD if visible, else null)",
     "city": "str", "state": "str", "country": "str",
     "linkedin_url": "str", "github_url": "str", "portfolio_url": "str",
-    "current_title": "str", "current_company": "str", "experience_years": "int"
+    "current_title": "str", "current_company": "str", "experience_years": "int",
+    "total_experience_months": "int",
+    "degree": "str", "branch": "str", "college_name": "str", "graduation_year": "str",
+    "cgpa": "str (as written, e.g. '8.5/10')", "tenth_percent": "str", "twelfth_percent": "str",
+    "skills": ["str"], "languages": ["str"],
+    "marital_status": "str", "gender": "str"
   },
   "resume_sections": {
     "section_name": ["content"]
   }
 }
+Use null for anything not stated in the resume. Never invent a value.
 Return ONLY valid JSON."""
     messages = [
         {"role": "system", "content": system_prompt},
@@ -195,6 +290,15 @@ Return ONLY valid JSON."""
         print(f"Warning: Failed to structure resume with LLM: {e}")
         profile_data = {}
         structured_json = None
+
+    # Drop nulls and anything the table has no column for, then JSON-encode
+    # the list columns so they survive the round-trip.
+    profile_columns = set(profile.c.keys())
+    profile_data = {
+        k: _encode_column(k, v)
+        for k, v in (profile_data or {}).items()
+        if v not in (None, "", []) and k in profile_columns
+    }
 
     try:
         with engine.connect() as conn:
@@ -253,59 +357,124 @@ def get_resume():
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=f"Database query error: {str(e)}")
 
-class MatchRequest(BaseModel):
-    unmatched_labels: List[str]
+class FieldToMatch(BaseModel):
+    """One unresolved control, described well enough to pick an option."""
+    label: str
+    kind: Optional[str] = "text"
+    options: List[str] = []
 
-@app.post("/match-field")
-async def match_field(req: MatchRequest):
-    if not req.unmatched_labels:
-        return {"mappings": {}}
-        
-    profile_keys = list(ProfileSchema.model_fields.keys())
-    
-    system_prompt = f"""You are an AI assistant helping to map ambiguous form labels to known data schemas.
+
+class MatchRequest(BaseModel):
+    # Option-aware shape (current).
+    fields: Optional[List[FieldToMatch]] = None
+    # Legacy shape, still accepted so an older extension keeps working.
+    unmatched_labels: Optional[List[str]] = None
+
+
+CHOICE_KINDS = {"select", "multi-select", "radio", "checkbox-single", "checkbox-multi", "custom-dropdown"}
+
+MATCH_SYSTEM_PROMPT = """You are an AI assistant helping to map ambiguous form controls to known data schemas.
 The user has a profile schema with these keys: {profile_keys}
 The user also has a structured resume with dynamically extracted keys (e.g., 'projects', 'education', 'skills', etc.).
 
-For each form label provided, map it to the MOST appropriate key. 
-If it maps to a profile key, use the format 'profile.<key>'.
-If it requires a long-form answer from a resume section, use 'resume.<key>'.
+For each form control, decide BOTH which data key answers it AND, when the control
+offers a fixed set of options, which single option text should be chosen.
 
-CRITICAL INSTRUCTIONS:
-1. If the form label asks for information about ANOTHER PERSON (e.g., father's name, mother's name, spouse's name, guardian's name, emergency contact, reference, nominee), YOU MUST MAP IT TO null. These fields ask for data about someone other than the applicant.
-2. If the form label is a conversational question (e.g., 'Why did your grades go down?', 'What is your motivation?') that requires a custom written answer rather than a direct copy-paste of a resume section, YOU MUST MAP IT TO null.
-3. If the form label asks for data that does NOT exist in the profile schema or resume sections (e.g., 'Aadhaar Number', 'Passport Number', 'Blood Group', 'Marital Status'), YOU MUST MAP IT TO null. Do NOT force a mapping to an unrelated key.
-4. Only map fields where you are confident the schema key genuinely matches what the form is asking for.
+Return a JSON object mapping the EXACT form label to either:
+  null
+  "profile.<key>"
+  "resume.<key>"
+  {{"key": "profile.<key>", "choose": "<exact option text from the list>"}}
 
-Return ONLY a JSON object mapping the exact form labels to the keys.
-Example: {{"What is your primary phone?": "profile.phone", "Tell us about your past projects": "resume.projects", "Father's Name": null, "Why did you choose this major?": null, "Blood Group": null}}
+RULES:
+1. If the control asks for information about ANOTHER PERSON (father, mother, spouse, guardian, emergency contact, reference, nominee), return null.
+2. If it is a conversational question needing a custom written answer ("Why did your grades drop?"), return null.
+3. If the data does not exist in the profile or resume (Aadhaar number, passport number, blood group), return null. Never force a mapping to an unrelated key.
+4. WHEN OPTIONS ARE PROVIDED, you MUST pick one of those exact option strings. Never invent an option that is not in the list. Prefer the option that best expresses the user's actual data, even if the wording differs ("B.Tech" for a BTech degree, "2-3 years" for two years of experience, "Yes" for work authorisation).
+5. For a question with options like "Other", "None of the above", or "Prefer not to say", only choose one of those when nothing else fits. Never choose "Other" if a specific listed option is correct.
+6. If the same data is a list (skills, languages) and the control allows multiple selections, return the key with no "choose" — the client matches it against the list itself.
+
+Return ONLY a JSON object.
+Example:
+{{"Preferred location": {{"key": "profile.preferred_location", "choose": "Bhopal"}},
+  "Years of experience": {{"key": "profile.experience_years", "choose": "2-3 years"}},
+  "Tell us about your projects": "resume.projects",
+  "Father's Name": null,
+  "Blood group": null}}
 """
+
+
+def _coerce_field(item):
+    """Accept either a plain label string or a FieldToMatch-shaped dict."""
+    if isinstance(item, str):
+        return {"label": item, "kind": "text", "options": []}
+    if isinstance(item, dict):
+        return {
+            "label": str(item.get("label") or ""),
+            "kind": item.get("kind") or "text",
+            "options": [
+                (o.get("text") if isinstance(o, dict) else str(o)) or ""
+                for o in (item.get("options") or [])
+            ],
+        }
+    return {"label": str(item), "kind": "text", "options": []}
+
+
+@app.post("/match-field")
+async def match_field(req: MatchRequest):
+    raw_items = req.fields if req.fields else (req.unmatched_labels or [])
+    fields = [_coerce_field(item) for item in raw_items]
+    fields = [f for f in fields if f["label"]]
+    if not fields:
+        return {"mappings": {}}
+
+    profile_keys = list(ProfileSchema.model_fields.keys())
+
+    # Only choice controls need their options in the prompt; sending option
+    # lists for text fields just burns tokens.
+    payload = [
+        {"label": f["label"], **({"kind": f["kind"], "options": f["options"][:30]} if f["options"] else {})}
+        for f in fields
+    ]
+
+    system_prompt = MATCH_SYSTEM_PROMPT.format(profile_keys=profile_keys)
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": json.dumps(req.unmatched_labels)}
+        {"role": "user", "content": json.dumps(payload)}
     ]
-    
+
     try:
         llm_response = await call_openrouter(messages, response_format={"type": "json_object"})
         cleaned_json = llm_response.replace('```json', '').replace('```', '').strip()
         mappings = json.loads(cleaned_json)
+        if not isinstance(mappings, dict):
+            raise ValueError("Expected a JSON object of mappings")
         return {"mappings": mappings}
     except Exception as e:
         print(f"Error mapping fields: {e}")
         # Return explicit nulls so the extension still shows manual
         # sparkle assist instead of silently dropping the fields.
-        return {"mappings": {label: None for label in req.unmatched_labels}}
+        return {"mappings": {f["label"]: None for f in fields}}
 
 @app.post("/corrections")
 def upsert_correction(data: CorrectionRequest):
+    kind = data.field_kind if data.field_kind in ("value", "option") else "value"
     try:
         with engine.connect() as conn:
             query = select(corrections).where(corrections.c.field_label == data.field_label)
             exists = conn.execute(query).first()
             if exists:
-                stmt = update(corrections).where(corrections.c.field_label == data.field_label).values(corrected_value=data.corrected_value)
+                stmt = (
+                    update(corrections)
+                    .where(corrections.c.field_label == data.field_label)
+                    .values(corrected_value=data.corrected_value, field_kind=kind)
+                )
             else:
-                stmt = insert(corrections).values(field_label=data.field_label, corrected_value=data.corrected_value)
+                stmt = insert(corrections).values(
+                    field_label=data.field_label,
+                    corrected_value=data.corrected_value,
+                    field_kind=kind,
+                )
             conn.execute(stmt)
             conn.commit()
             return {"status": "saved", "field_label": data.field_label, "corrected_value": data.corrected_value}

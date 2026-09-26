@@ -53,9 +53,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (res.ok) {
       const data = await res.json();
       for (const [key, val] of Object.entries(data)) {
-        if (profileForm.elements[key] && val !== null) {
-          profileForm.elements[key].value = val;
-        }
+        const el = profileForm.elements[key];
+        if (!el || val === null || val === undefined) continue;
+        // The API hands back real arrays for skills/languages; a <select> or
+        // <input> can only show them as text.
+        el.value = Array.isArray(val) ? val.join(', ') : val;
       }
     }
   } catch (e) {
@@ -63,14 +65,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Handle Unsaved changes indicator
-  const inputs = profileForm.querySelectorAll('input');
+  const inputs = profileForm.querySelectorAll('input, select, textarea');
   inputs.forEach(input => {
-    input.addEventListener('input', () => {
+    const markDirty = () => {
       if (profileStatus.textContent !== 'Unsaved changes') {
         profileStatus.textContent = 'Unsaved changes';
         profileStatus.className = 'status-msg'; // default grey color
       }
-    });
+    };
+    input.addEventListener('input', markDirty);
+    input.addEventListener('change', markDirty);
   });
 
   // Save profile
@@ -83,13 +87,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     const formData = new FormData(profileForm);
     const data = Object.fromEntries(formData.entries());
-    
-    // Convert empty strings to null and handle numbers
-    for (const key in data) {
-      if (data[key] === '') data[key] = null;
-    }
-    if (data.experience_years) {
-      data.experience_years = parseInt(data.experience_years, 10);
+
+    // Coerce each field by its own input type, so the backend receives real
+    // numbers for number inputs and real lists for skills/languages.
+    for (const [key, raw] of Object.entries(data)) {
+      const el = profileForm.elements[key];
+      if (raw === '') { data[key] = null; continue; }
+      if (el && el.type === 'number') {
+        const n = Number(raw);
+        data[key] = Number.isFinite(n) ? n : null;
+      } else if (key === 'skills' || key === 'languages') {
+        data[key] = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+      }
     }
 
     try {
@@ -244,6 +253,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const slider = document.getElementById('highlight-slider');
   const sliderVal = document.getElementById('highlight-val');
   const autoDraftToggle = document.getElementById('auto-draft-toggle');
+  const consentTicksToggle = document.getElementById('consent-ticks-toggle');
   const themeToggle = document.getElementById('theme-toggle');
   const apiUrlInput = document.getElementById('api-url-input');
 
@@ -269,11 +279,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     themeToggle.checked = (activeTheme === 'dark');
   });
 
-  chrome.storage.sync.get({ highlightDuration: 3, autoDraftMode: false }, (items) => {
-    slider.value = items.highlightDuration;
-    sliderVal.textContent = items.highlightDuration + 's';
-    autoDraftToggle.checked = items.autoDraftMode;
-  });
+  chrome.storage.sync.get(
+    { highlightDuration: 3, autoDraftMode: false, allowConsentTicks: false },
+    (items) => {
+      slider.value = items.highlightDuration;
+      sliderVal.textContent = items.highlightDuration + 's';
+      autoDraftToggle.checked = items.autoDraftMode;
+      consentTicksToggle.checked = !!items.allowConsentTicks;
+    }
+  );
 
   // Save on change
   themeToggle.addEventListener('change', (e) => {
@@ -290,6 +304,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   autoDraftToggle.addEventListener('change', (e) => {
     chrome.storage.sync.set({ autoDraftMode: e.target.checked });
+  });
+
+  consentTicksToggle.addEventListener('change', (e) => {
+    chrome.storage.sync.set({ allowConsentTicks: e.target.checked });
   });
 
   // 5. Learned Data Tab Logic

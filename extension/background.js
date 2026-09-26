@@ -24,6 +24,11 @@ async function fetchWithTimeout(urlPath, options = {}, timeoutMs = 10000) {
   }
 }
 
+// Per-tab state. A service worker can be torn down at any time, so this is
+// best-effort UI bookkeeping only — never a source of truth.
+const frameCounts = new Map();
+const frameReports = new Map();
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'save_correction') {
     fetchWithTimeout('/corrections', {
@@ -45,12 +50,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.action === 'match_fields') {
+    // Option-aware payload: each entry carries its control kind and the option
+    // texts, so the LLM can pick an exact option instead of only a data key.
+    const payload = Array.isArray(message.unmatched_fields)
+      ? { fields: message.unmatched_fields }
+      : { unmatched_labels: message.unmatched_labels || [] };
+
     fetchWithTimeout('/match-field', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        unmatched_labels: message.unmatched_labels
-      })
+      body: JSON.stringify(payload)
     }, 30000)
     .then(data => {
       sendResponse({ success: true, mappings: data.mappings });
@@ -83,17 +92,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'forms_detected') {
-    if (message.count > 0) {
-      fetchWithTimeout('/ping', {}, 2000)
-        .then(() => {
-          chrome.action.setBadgeText({ text: 'AI', tabId: sender.tab.id });
-          chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: sender.tab.id });
-        })
-        .catch(() => {
-          chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
-        });
-    } else {
-      chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
+    // Frames all report in; keep the badge on the highest count seen per tab.
+    if (sender.tab) {
+      if (typeof message.count === 'number') {
+        frameCounts.set(`${sender.tab.id}`, Math.max(frameCounts.get(sender.tab.id) || 0, message.count));
+      }
+      if (message.count > 0) {
+        fetchWithTimeout('/ping', {}, 2000)
+          .then(() => {
+            chrome.action.setBadgeText({ text: 'AI', tabId: sender.tab.id });
+            chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: sender.tab.id });
+          })
+          .catch(() => {
+            chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
+          });
+      } else {
+        chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
+      }
+    }
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.action === 'autofill_done') {
+    // Aggregate per-frame reports so the badge reflects the whole tab.
+    if (sender.tab) {
+      const key = `${sender.tab.id}`;
+      const agg = frameReports.get(key) || { filled: 0, needsReview: 0, frames: 0 };
+      agg.filled += (message.report && message.report.filled) || 0;
+      agg.needsReview += (message.report && message.report.needsReview) || 0;
+      agg.frames++;
+      frameReports.set(key, agg);
     }
     sendResponse({ success: true });
     return false;
@@ -124,14 +153,17 @@ chrome.action.onClicked.addListener((tab) => {
       chrome.runtime.openOptionsPage();
     } else {
       // Single click — fetch profile, corrections, and resume concurrently
+      frameReports.delete(tab.id);
       Promise.all([
         fetchWithTimeout('/profile', {}, 5000),
         fetchWithTimeout('/corrections', {}, 5000).catch(() => ({})),
         fetchWithTimeout('/resume', {}, 5000).catch(() => ({}))
       ])
         .then(([profile, corrections, resume]) => {
-           chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile: profile, corrections: corrections, resume: resume })
-             .catch(err => console.log('Could not send autofill to tab:', err));
+          // No frameId → delivered to every frame in the tab, so forms inside
+          // same-origin iframes get filled too.
+          chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile: profile, corrections: corrections, resume: resume })
+            .catch(err => console.log('Could not send autofill to tab:', err));
         })
         .catch(err => {
            console.error('Failed to fetch data for autofill:', err);

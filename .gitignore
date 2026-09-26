@@ -7,3 +7,10 @@ backend/__pycache__/
 backend/*.pyc
 backend/formpilot.db
 node_modules/
+
+# Local DB backup taken before the profile-schema migration
+backend/formpilot.db.bak
+# Verification scripts (run manually, not part of the extension)
+backend/scratch/
+improvements.md
+interview.md

@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FormPilot — DOM Integration Tests</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f8f0ea; color: #561d46; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: #6b1d3a; margin-bottom: 16px; }
+  #summary { padding: 12px 14px; background: #fff; border: 2px solid #ae6a97; border-radius: 8px; margin: 14px 0; font-weight: 600; }
+  #summary.pass { border-color: #2d8a4e; color: #2d8a4e; }
+  #summary.fail { border-color: #6b1d3a; color: #6b1d3a; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 9px; border-bottom: 1px solid #eadcd4; vertical-align: top; }
+  th { background: #eca8bb; font-weight: 600; }
+  tr.ok td:first-child { color: #2d8a4e; font-weight: 600; }
+  tr.no td:first-child { color: #6b1d3a; font-weight: 600; }
+  tr.skip td { color: #8a7a85; font-style: italic; }
+  code { background: #f4ece7; padding: 1px 4px; border-radius: 3px; font-size: 12px; word-break: break-all; }
+  #frame { width: 100%; height: 640px; border: 1px solid #b89aad; border-radius: 6px; background: #fff; }
+  button { background: #ae6a97; color: #fff; border: none; border-radius: 4px; padding: 8px 16px; font-weight: 600; cursor: pointer; font-size: 14px; }
+  button:disabled { background: #b89aad; cursor: default; }
+  h2 { font-size: 14px; margin: 20px 0 6px; }
+  .err { color: #6b1d3a; font-weight: 400; }
+</style>
+</head>
+<body>
+
+<h1>FormPilot — DOM Integration Tests</h1>
+<p class="sub">Injects the real content script into a copy of the test bench and checks what actually got filled.</p>
+
+<button id="run">Run tests</button>
+<div id="summary">Not run yet.</div>
+
+<h2>Results</h2>
+<table>
+  <thead><tr><th style="width:60px">Result</th><th style="width:230px">Fixture</th><th>What it checks</th><th style="width:180px">Actual</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<h2>Field bench (live)</h2>
+<iframe id="frame" src="test_forms_mock.html"></iframe>
+
+<script>
+/* The profile every expectation below is written against. */
+const PROFILE = {
+  first_name: 'Ada', last_name: 'Lovelace',
+  email: 'ada@example.com', phone: '+91 98765 43210',
+  address_line1: '12 Nehru Road', city: 'Bhopal', state: 'Madhya Pradesh',
+  pincode: '462003', country: 'India',
+  dob: '2000-01-15', cgpa: '9.01/10.00',
+  degree: 'B.Tech', branch: 'Computer Science', college_name: 'VIT',
+  graduation_year: '2024', tenth_percent: '92', twelfth_percent: '94',
+  current_title: 'Frontend Developer', current_company: 'Acme Corp',
+  experience_years: 2, total_experience_months: 24, notice_period_days: 30,
+  preferred_location: 'Bhopal',
+  work_authorization: 'Yes', relocation_ok: 'Yes', remote_work_ok: 'Yes',
+  marital_status: 'Single',
+  gender: 'Female', veteran_status: 'No', disability_status: 'No',
+  skills: ['JavaScript', 'React', 'Python'],
+  languages: ['English', 'Hindi'],
+  linkedin_url: 'https://linkedin.com/in/ada',
+  github_url: 'https://github.com/ada',
+  portfolio_url: 'https://ada.dev'
+};
+
+const frame = document.getElementById('frame');
+/* Every read runs against the bench inside the iframe, not the runner page. */
+const D = () => frame.contentDocument;
+const T = id => D().getElementById(id);
+const Q = sel => D().querySelector(sel);
+const QA = sel => Array.from(D().querySelectorAll(sel));
+
+/* ── Assertion helpers ── */
+const radioValue = name => { const el = Q(`input[type="radio"][name="${name}"]:checked`); return el ? el.value : ''; };
+const radioCount = name => QA(`input[type="radio"][name="${name}"]:checked`).length;
+
+function ariaRadioValue(groupLabel) {
+  const g = QA('[role="radiogroup"]').find(x => (x.getAttribute('aria-label') || '').includes(groupLabel));
+  if (!g) return '(no group)';
+  const c = g.querySelector('[role="radio"][aria-checked="true"]');
+  return c ? (c.getAttribute('data-value') || c.textContent.trim()) : '';
+}
+const checkedValues = name => QA(`input[type="checkbox"][name="${name}"]:checked`).map(c => c.value);
+const consentTicked = () => QA('input[type="checkbox"]:checked').filter(c => (c.getAttribute('name') || '').startsWith('fp_') && ['fp_agree', 'fp_news', 'fp_declare'].includes(c.name)).length;
+const selectVal = id => { const el = T(id); return el ? el.value : '(missing)'; };
+const selectText = id => { const el = T(id); return el && el.selectedIndex >= 0 ? el.options[el.selectedIndex].text : ''; };
+const selectedValues = id => { const el = T(id); return el ? Array.from(el.selectedOptions).map(o => o.value).join(',') : '(missing)'; };
+const inputVal = id => { const el = T(id); return el ? el.value : '(missing)'; };
+const triggerText = sel => { const el = Q(sel); return el ? (el.textContent || '').trim() : '(missing)'; };
+/* The aria-haspopup fixture's trigger wraps its own (hidden) option list, so
+   its value lives in the inner badge rather than in textContent. */
+const badgeText = sel => { const el = Q(sel + ' .tpl-value'); return el ? (el.textContent || '').trim() : '(missing)'; };
+const isHidden = id => { const el = T(id); return el ? (D().defaultView.getComputedStyle(el).display === 'none') : '(missing)'; };
+
+function dateParts() {
+  const dd = Q('[data-fp-part="dd"]'), mm = Q('[data-fp-part="mm"]'), yy = Q('[data-fp-part="yyyy"]');
+  return dd && mm && yy ? `${dd.value}/${mm.value}/${yy.value}` : '(missing)';
+}
+function shadowCity() {
+  const host = T('shadow-host-el');
+  const root = host && host.shadowRoot;
+  if (!root) return '(no shadow root)';
+  const sel = root.querySelector('#fp_shadow_city');
+  return sel ? sel.value : '(missing)';
+}
+
+/* ── Expectations ── */
+const EXPECTATIONS = [
+  // Native radio
+  { g: 'Native radio', n: 'Gender picks Female from profile', want: 'Female', read: () => radioValue('fp_gender') },
+  { g: 'Native radio', n: 'Label taken from <legend>', want: 'Yes', read: () => radioValue('fp_auth') },
+  { g: 'Native radio', n: 'Label taken from a nearby heading', want: 'Single', read: () => radioValue('fp_marital') },
+  { g: 'Native radio', n: 'Exactly one option stays checked', want: '1', read: () => String(radioCount('fp_gender')) },
+
+  // Checkbox
+  { g: 'Checkbox', n: 'Group matches profile skills only', want: 'JavaScript,Python,React', read: () => checkedValues('fp_lang').sort().join(',') },
+  { g: 'Checkbox', n: 'A skill not in the profile is left alone', want: 'false', read: () => String(checkedValues('fp_lang').includes('Java')) },
+  { g: 'Checkbox', n: 'Consent boxes are never auto-ticked', want: '0', read: () => String(consentTicked()) },
+
+  // Select
+  { g: 'Select', n: 'Country matched on option text', want: 'IN', read: () => selectVal('fp_country') },
+  { g: 'Select', n: 'State matched on option text', want: 'MP', read: () => selectVal('fp_state') },
+  { g: 'Select', n: '2 years resolves into the "2-3 years" range', want: '2-3 years', read: () => selectText('fp_exp') },
+  { g: 'Select', n: 'multi-select takes every matched skill', want: 'JavaScript,React,Python', read: () => selectedValues('fp_skills') },
+
+  // Custom dropdowns
+  { g: 'Custom dropdown', n: 'aria-haspopup trigger (nested toggle click)', want: 'Bhopal', read: () => badgeText('#fp_dd_hb') },
+  { g: 'Custom dropdown', n: 'MUI select', want: 'Frontend Developer', read: () => triggerText('.MuiSelect-select') },
+  { g: 'Custom dropdown', n: 'select2 trigger', want: '30 days', read: () => triggerText('.select2-selection__rendered') },
+  { g: 'Custom dropdown', n: 'Bootstrap dropdown', want: 'B.Tech', read: () => (T('fp_bs') || {}).textContent },
+  { g: 'Custom dropdown', n: 'body-level GForms listbox (popup scoping)', want: 'VIT Bhopal', read: () => triggerText('#fp_gf_lb') },
+  { g: 'Custom dropdown', n: 'popup is closed again after choosing', want: 'closed', read: () => T('gforms-live-listbox') ? 'still open' : 'closed' },
+
+  // Google / MS Forms markup
+  { g: 'Google/MS Forms', n: 'GForms [data-params] label resolution', want: 'ada@example.com', read: () => inputVal('fp_gf_email') },
+  { g: 'Google/MS Forms', n: 'div-based role=radio gets clicked', want: 'Female', read: () => ariaRadioValue('Gender') },
+  { g: 'Google/MS Forms', n: 'MS combobox: 24 months picks "4+" (specific keyword wins)', want: '4+', read: () => (Q('[role="combobox"][aria-label="Total experience in months"]') || {}).textContent },
+
+  // Calendar
+  { g: 'Calendar', n: 'type=date gets a normalised ISO value', want: '2000-01-15', read: () => inputVal('fp_dob') },
+  { g: 'Calendar', n: 'type=month gets YYYY-MM', want: '2024-01', read: () => inputVal('fp_mo') },
+  { g: 'Calendar', n: 'separate dd/mm/yyyy boxes', want: '15/01/2000', read: () => dateParts() },
+  { g: 'Calendar', n: 'readonly flatpickr input driven via its popup', want: '15', read: () => { const el = Q('.flatpickr-input'); return el ? el.value : '(missing)'; } },
+  { g: 'Calendar', n: 'a non-date value is refused, not written as junk', want: '(left empty)', read: () => inputVal('fp_dt') || '(left empty)' },
+
+  // Conditional / iterative passes
+  { g: 'Conditional', n: 'Choosing India does not reveal "specify"', want: 'true', read: () => String(isHidden('cond-other')) },
+  { g: 'Conditional', n: 'Relocation=Yes reveals the hidden block', want: 'false', read: () => String(isHidden('exp-block')) },
+  { g: 'Conditional', n: 'a field revealed mid-run is filled on the next pass', want: 'Acme Corp', read: () => inputVal('fp_company') },
+  { g: 'Conditional', n: 'second revealed field also filled', want: 'Frontend Developer', read: () => inputVal('fp_title') },
+
+  // Reach
+  { g: 'Reach', n: 'select inside an open shadow root', want: 'Bhopal', read: () => shadowCity() },
+  { g: 'Reach', n: 'same-origin iframe', want: '—', read: () => '—', manual: true }
+];
+
+/* ── Harness ── */
+const SHARED = ['../shared/constants.js', '../shared/matching.js', '../shared/widgets.js', '../content_script.js'];
+const SETTINGS = { highlightDuration: 0, autoDraftMode: false, allowConsentTicks: false };
+
+function installChromeStub(win) {
+  const noop = () => {};
+  win.chrome = {
+    storage: {
+      sync: { get: (d, cb) => { if (cb) cb({ ...SETTINGS }); }, set: noop },
+      onChanged: { addListener: noop }
+    },
+    runtime: {
+      onMessage: { addListener: fn => { win.__fpHandler = fn; } },
+      sendMessage: (msg, cb) => {
+        // LLM paths are stubbed: this suite exercises local matching only.
+        if (msg && msg.action === 'match_fields' && typeof cb === 'function') {
+          cb({ success: true, mappings: {} });
+        } else if (typeof cb === 'function') {
+          cb({ success: true });
+        }
+        return Promise.resolve({ success: true });
+      }
+    }
+  };
+}
+
+function injectScripts(win) {
+  return Promise.all(SHARED.map(src => fetch(src).then(r => {
+    if (!r.ok) throw new Error('could not load ' + src + ' (HTTP ' + r.status + ')');
+    return r.text();
+  }).then(text => new Promise((resolve, reject) => {
+    // An inline <script> executes synchronously on insertion, but its `load`
+    // event is not dependable — resolve on the next macrotask instead.
+    const s = win.document.createElement('script');
+    s.textContent = text;
+    try {
+      win.document.head.appendChild(s);
+    } catch (e) {
+      reject(new Error('inject failed: ' + src + ' — ' + e.message));
+      return;
+    }
+    setTimeout(resolve, 0);
+    setTimeout(() => reject(new Error('inject timed out: ' + src)), 5000);
+  }))));
+}
+
+function runAutofill(win) {
+  return new Promise((resolve, reject) => {
+    const handler = win.__fpHandler;
+    if (!handler) { reject(new Error('content script did not register a message handler')); return; }
+    // Mirror chrome.runtime.onMessage: (message, sender, sendResponse).
+    handler({ action: 'autofill', profile: PROFILE, corrections: {}, resume: {} }, { id: 'harness' }, resolve);
+    setTimeout(() => reject(new Error('autofill timed out after 40s')), 40000);
+  });
+}
+
+const runBtn = document.getElementById('run');
+let ran = false;
+
+async function runSuite() {
+  if (ran) return;
+  ran = true;
+  const btn = runBtn;
+  btn.disabled = true;
+  const sum = document.getElementById('summary');
+  const rows = document.getElementById('rows');
+  sum.textContent = 'Running…';
+  sum.className = '';
+  rows.innerHTML = '';
+
+  const win = frame.contentWindow;
+  installChromeStub(win);
+
+  let report = null, error = null;
+  try {
+    await injectScripts(win);
+    report = await runAutofill(win);
+  } catch (e) {
+    error = e;
+  }
+
+  if (error) {
+    rows.innerHTML = '<tr class="no"><td>ERR</td><td colspan="3" class="err">' + error.message +
+      '<br><small>Open the bench frame devtools console for the content script log.</small></td></tr>';
+    sum.textContent = 'Harness error: ' + error.message;
+    sum.className = 'fail';
+    btn.disabled = false;
+    return;
+  }
+
+  let pass = 0, fail = 0, manual = 0;
+  for (const exp of EXPECTATIONS) {
+    const tr = document.createElement('tr');
+    let cls, label, actual;
+    try { actual = exp.read(); } catch (e) { actual = 'error: ' + e.message; }
+
+    if (exp.manual) { cls = 'skip'; label = 'MANUAL'; manual++; }
+    else if (String(actual) === String(exp.want)) { cls = 'ok'; label = 'PASS'; pass++; }
+    else { cls = 'no'; label = 'FAIL'; fail++; }
+
+    tr.className = cls;
+    tr.dataset.result = label;
+    tr.innerHTML = '<td>' + label + '</td>' +
+      '<td>' + exp.g + '</td>' +
+      '<td>' + exp.n + '<br><small>expected <code>' + exp.want + '</code></small></td>' +
+      '<td><code>' + actual + '</code></td>';
+    rows.appendChild(tr);
+  }
+
+  const r = (report && report.report) || {};
+  sum.textContent = pass + ' passed, ' + fail + ' failed' + (manual ? ', ' + manual + ' manual' : '') +
+    '  •  extension reported: ' + r.filled + ' filled, ' + r.noOption + ' no-option, ' +
+    r.noValue + ' no-value, ' + r.skipped + ' skipped, ' + r.consent + ' consent, ' + r.failed + ' failed';
+  sum.className = fail ? 'fail' : 'pass';
+  sum.id = 'summary';
+  document.title = (fail ? 'FAIL ' : 'OK ') + pass + '/' + (pass + fail);
+  btn.disabled = false;
+}
+
+runBtn.addEventListener('click', runSuite);
+
+// Lets the suite be driven headlessly: chrome --headless --dump-dom "…?autorun=1"
+function maybeAutoRun() {
+  if (!/[?&]autorun=1/.test(location.search)) return;
+  // The frame may already be loaded by the time this script runs.
+  if (frame.contentDocument && frame.contentDocument.readyState === 'complete') runSuite();
+  else frame.addEventListener('load', runSuite, { once: true });
+}
+if (document.readyState === 'complete') setTimeout(maybeAutoRun, 50);
+else window.addEventListener('load', () => setTimeout(maybeAutoRun, 50));
+</script>
+</body>
+</html>

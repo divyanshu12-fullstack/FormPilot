@@ -16,8 +16,10 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["shared/constants.js", "content_script.js"],
-      "run_at": "document_idle"
+      "js": ["shared/constants.js", "shared/matching.js", "shared/widgets.js", "content_script.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ],
   "action": {},

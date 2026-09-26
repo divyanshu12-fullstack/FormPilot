@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FormPilot — Logic Tests</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f8f0ea; color: #561d46; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: #6b1d3a; margin-bottom: 16px; }
+  #summary { padding: 12px 14px; background: #fff; border: 2px solid #ae6a97; border-radius: 8px; margin-bottom: 14px; font-weight: 600; }
+  #summary.pass { border-color: #2d8a4e; color: #2d8a4e; }
+  #summary.fail { border-color: #6b1d3a; color: #6b1d3a; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 9px; border-bottom: 1px solid #eadcd4; }
+  th { background: #eca8bb; }
+  tr.no { color: #6b1d3a; }
+  tr.ok { color: #2d8a4e; }
+  code { background: #f4ece7; padding: 1px 4px; border-radius: 3px; }
+  .grp td { background: #f4ece7; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>FormPilot — Logic Tests</h1>
+<p class="sub">Option resolution, date normalization, consent detection and label utilities — no browser APIs involved.</p>
+<div id="summary">Running…</div>
+<table>
+  <thead><tr><th style="width:60px">Result</th><th style="width:220px">Test</th><th style="width:230px">Expected</th><th>Actual</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<script src="../shared/constants.js"></script>
+<script src="../shared/matching.js"></script>
+<script src="../test_logic.js"></script>
+<script>
+(function () {
+  const r = window.__formpilotLogicResults;
+  const rows = document.getElementById('rows');
+  let lastGroup = '';
+  for (const t of r.results) {
+    if (t.group !== lastGroup) {
+      lastGroup = t.group;
+      const g = document.createElement('tr');
+      g.className = 'grp';
+      g.innerHTML = '<td colspan="4">' + t.group + '</td>';
+      rows.appendChild(g);
+    }
+    const tr = document.createElement('tr');
+    tr.className = t.pass ? 'ok' : 'no';
+    tr.innerHTML = '<td>' + (t.pass ? 'PASS' : 'FAIL') + '</td><td>' + t.name +
+      '</td><td><code>' + JSON.stringify(t.expected) + '</code></td><td><code>' + JSON.stringify(t.actual) + '</code></td>';
+    rows.appendChild(tr);
+  }
+  const s = document.getElementById('summary');
+  s.textContent = r.passed + ' / ' + r.total + ' logic tests passed';
+  s.className = r.failed.length ? 'fail' : 'pass';
+})();
+</script>
+</body>
+</html>

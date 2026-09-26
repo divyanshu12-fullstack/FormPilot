@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FormPilot — Control Type Test Bench</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f8f0ea; color: #561d46; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin: 28px 0 8px; padding: 6px 10px; background: #eca8bb; border-radius: 4px; }
+  fieldset { border: 1px solid #b89aad; border-radius: 6px; margin: 0 0 14px; padding: 10px 14px 14px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  label { display: inline-block; margin: 4px 12px 4px 0; cursor: pointer; }
+  .row { margin: 10px 0; }
+  .hint { font-size: 12px; color: #6b1d3a; }
+  /* Custom-dropdown stand-ins. Kept plain CSS so the fixture has no deps. */
+  .tpl-dropdown { position: relative; display: inline-block; }
+  .tpl-trigger {
+    min-width: 220px; padding: 7px 10px; background: #fff;
+    border: 1px solid #b89aad; border-radius: 4px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .tpl-popup {
+    display: none; position: absolute; z-index: 50; top: 100%; left: 0;
+    min-width: 220px; max-height: 180px; overflow: auto;
+    background: #fff; border: 1px solid #ae6a97; border-radius: 4px;
+    box-shadow: 0 4px 10px rgba(0,0,0,.15);
+  }
+  .tpl-dropdown[data-open="true"] .tpl-popup { display: block; }
+  .tpl-option { padding: 6px 10px; cursor: pointer; }
+  .tpl-option:hover { background: #f8f0ea; }
+  .tpl-option[aria-selected="true"] { background: #eca8bb; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+  .datestrip { display: flex; gap: 6px; }
+  .datestrip input { width: 64px; }
+  input, select, textarea { padding: 6px; border: 1px solid #b89aad; border-radius: 4px; font: inherit; }
+</style>
+</head>
+<body>
+
+<h1>FormPilot — Control Type Test Bench</h1>
+<p class="hint">Every control family FormPilot must handle. Each carries <code>data-fp-id</code> so the runner can assert outcomes.</p>
+
+<!-- ══════════ NATIVE RADIO ══════════ -->
+<fieldset data-fp-id="radio-plain">
+  <legend>Gender</legend>
+  <label><input type="radio" name="fp_gender" value="Male"> Male</label>
+  <label><input type="radio" name="fp_gender" value="Female"> Female</label>
+  <label><input type="radio" name="fp_gender" value="Other"> Other</label>
+  <label><input type="radio" name="fp_gender" value="Prefer not to say"> Prefer not to say</label>
+</fieldset>
+
+<fieldset data-fp-id="radio-legend">
+  <legend>Work authorization</legend>
+  <label><input type="radio" name="fp_auth" value="Yes"> Yes</label>
+  <label><input type="radio" name="fp_auth" value="No"> No</label>
+</fieldset>
+
+<!-- No fieldset/legend: label must come from the heading -->
+<div data-fp-id="radio-heading">
+  <h3>Marital status</h3>
+  <label><input type="radio" name="fp_marital" value="Single"> Single</label>
+  <label><input type="radio" name="fp_marital" value="Married"> Married</label>
+</div>
+
+<!-- Label prefix shared across options, no legend (LCP fallback path) -->
+<div class="row" data-fp-id="radio-lcp">
+  <label><input type="radio" name="fp_emp" value="Full time"> Employment type - Full time</label>
+  <label><input type="radio" name="fp_emp" value="Part time"> Employment type - Part time</label>
+  <label><input type="radio" name="fp_emp" value="Internship"> Employment type - Internship</label>
+</div>
+
+<!-- ══════════ NATIVE CHECKBOX ══════════ -->
+<fieldset data-fp-id="checkbox-group">
+  <legend>Which technologies do you know?</legend>
+  <label><input type="checkbox" name="fp_lang" value="JavaScript"> JavaScript</label>
+  <label><input type="checkbox" name="fp_lang" value="React"> React</label>
+  <label><input type="checkbox" name="fp_lang" value="Python"> Python</label>
+  <label><input type="checkbox" name="fp_lang" value="Java"> Java</label>
+  <label><input type="checkbox" name="fp_lang" value="C++"> C++</label>
+</fieldset>
+
+<fieldset data-fp-id="checkbox-consent">
+  <legend>Consent</legend>
+  <label><input type="checkbox" name="fp_agree" value="yes"> I agree to the terms and conditions</label>
+  <label><input type="checkbox" name="fp_news" value="yes"> Send me marketing emails</label>
+  <label><input type="checkbox" name="fp_declare" value="yes"> I hereby declare the information provided is true</label>
+</fieldset>
+
+<!-- ══════════ NATIVE SELECT ══════════ -->
+<div class="grid2">
+  <div class="row" data-fp-id="select-country">
+    <label for="fp_country">Country</label><br>
+    <select id="fp_country" name="fp_country">
+      <option value="">Select…</option>
+      <option value="IN">India</option>
+      <option value="US">United States</option>
+      <option value="GB">United Kingdom</option>
+      <option value="DE">Germany</option>
+    </select>
+  </div>
+
+  <div class="row" data-fp-id="select-state">
+    <label for="fp_state">State</label><br>
+    <select id="fp_state" name="fp_state">
+      <option value="">Select…</option>
+      <option value="MP">Madhya Pradesh</option>
+      <option value="KA">Karnataka</option>
+      <option value="MH">Maharashtra</option>
+    </select>
+  </div>
+
+  <div class="row" data-fp-id="select-experience">
+    <label for="fp_exp">Years of experience</label><br>
+    <select id="fp_exp" name="fp_exp">
+      <option value="">Select…</option>
+      <option value="0-1">0-1 years</option>
+      <option value="2-3">2-3 years</option>
+      <option value="4+">4+ years</option>
+    </select>
+  </div>
+
+  <div class="row" data-fp-id="select-multiple">
+    <label for="fp_skills">Skills (select all that apply)</label><br>
+    <select id="fp_skills" name="fp_skills" multiple size="5">
+      <option value="HTML">HTML</option>
+      <option value="CSS">CSS</option>
+      <option value="JavaScript">JavaScript</option>
+      <option value="React">React</option>
+      <option value="Node.js">Node.js</option>
+      <option value="Python">Python</option>
+    </select>
+  </div>
+</div>
+
+<!-- ══════════ CUSTOM DROPDOWNS ══════════ -->
+<div class="grid2">
+  <div class="row" data-fp-id="dd-aria-haspopup">
+    <div id="dd-hb-label">Preferred location</div>
+    <div class="tpl-dropdown" id="fp_dd_hb" data-open="false"
+         role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="dd-hb-label"
+         tabindex="0" style="display:inline-block;">
+      <div class="tpl-trigger"><span class="tpl-value">Select…</span><span>▾</span></div>
+      <div class="tpl-popup" role="listbox" style="display:none;">
+        <div class="tpl-option" role="option" data-value="Bhopal">Bhopal</div>
+        <div class="tpl-option" role="option" data-value="Indore">Indore</div>
+        <div class="tpl-option" role="option" data-value="Bangalore">Bangalore</div>
+        <div class="tpl-option" role="option" data-value="Pune">Pune</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" data-fp-id="dd-gforms">
+    <div class="MuiInputBase-root" data-fp-id="dd-mui">
+      <div id="dd-mui-label">Current title</div>
+      <div class="MuiSelect-select" role="combobox" aria-haspopup="listbox" aria-expanded="false"
+           aria-labelledby="dd-mui-label" tabindex="0" data-value="" style="display:inline-block;">
+        <span class="tpl-value">Select…</span>
+      </div>
+      <ul class="MuiMenu-list" role="listbox" style="display:none; position:absolute; background:#fff; border:1px solid #ae6a97; margin:0; padding:4px 0; list-style:none; min-width:220px; z-index:60;">
+        <li class="MuiMenuItem-root" role="option" data-value="Software Engineer">Software Engineer</li>
+        <li class="MuiMenuItem-root" role="option" data-value="Frontend Developer">Frontend Developer</li>
+        <li class="MuiMenuItem-root" role="option" data-value="Data Analyst">Data Analyst</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="row" data-fp-id="dd-select2">
+    <div id="dd-s2-label">Notice period</div>
+    <span class="select2-container select2-container--default">
+      <span class="selection">
+        <span class="select2-selection select2-selection--single" role="combobox" aria-haspopup="listbox"
+              aria-expanded="false" aria-labelledby="dd-s2-label" tabindex="0">
+          <span class="select2-selection__rendered" role="status">Select…</span>
+        </span>
+        <span class="select2-dropdown" style="display:none; position:absolute; background:#fff; border:1px solid #ae6a97; min-width:220px; z-index:60;">
+          <span class="select2-results__option" role="option" data-value="immediate">Immediate</span>
+          <span class="select2-results__option" role="option" data-value="30">30 days</span>
+          <span class="select2-results__option" role="option" data-value="60">60 days</span>
+          <span class="select2-results__option" role="option" data-value="90">90 days</span>
+        </span>
+      </span>
+    </span>
+  </div>
+
+  <div class="row" data-fp-id="dd-bootstrap">
+    <label id="dd-bs-label" for="fp_bs">Degree</label><br>
+    <button type="button" class="dropdown-toggle" id="fp_bs" aria-haspopup="listbox" aria-expanded="false"
+            aria-labelledby="dd-bs-label" style="min-width:220px; text-align:left;">Select…</button>
+    <div class="dropdown-menu" style="display:none; position:absolute; background:#fff; border:1px solid #ae6a97; min-width:220px; z-index:60;">
+      <a class="dropdown-item" role="option" data-value="B.Tech" href="#">B.Tech</a>
+      <a class="dropdown-item" role="option" data-value="B.E." href="#">B.E.</a>
+      <a class="dropdown-item" role="option" data-value="M.Tech" href="#">M.Tech</a>
+      <a class="dropdown-item" role="option" data-value="MBA" href="#">MBA</a>
+    </div>
+  </div>
+</div>
+
+<!-- GForms-style: popup rendered at BODY level, detached from the trigger.
+     This is the case the old document-scoped lookup got wrong. -->
+<div class="row" data-fp-id="dd-gforms-body">
+  <div role="listbox" id="fp_gf_lb" aria-haspopup="listbox" aria-expanded="false" tabindex="0"
+       aria-label="College name" style="display:inline-block; min-width:220px; padding:7px 10px; background:#fff; border:1px solid #b89aad; border-radius:4px;">
+    Choose an option
+  </div>
+</div>
+<div id="gforms-popup-host"></div>
+
+<!-- ══════════ GOOGLE FORMS / MS FORMS MARKUP ══════════ -->
+<div data-params="*-123" data-fp-id="gforms-text">
+  <div role="heading" aria-level="3">Email address</div>
+  <input type="text" id="fp_gf_email" class="whsOnd zHQoBf" placeholder="Your answer">
+</div>
+
+<div data-params="*-456" data-fp-id="gforms-choice">
+  <div role="heading" aria-level="3">Gender</div>
+  <div role="radiogroup" aria-label="Gender">
+    <div role="radio" aria-checked="false" data-value="Male" tabindex="0">Male</div>
+    <div role="radio" aria-checked="false" data-value="Female" tabindex="0">Female</div>
+    <div role="radio" aria-checked="false" data-value="Other" tabindex="0">Other</div>
+  </div>
+</div>
+
+<div data-params="*-789" data-fp-id="msforms-combo">
+  <div role="radiogroup" aria-label="Have you worked before?">
+    <span role="radio" aria-checked="false" data-value="Yes" tabindex="0">Yes</span>
+    <span role="radio" aria-checked="false" data-value="No" tabindex="0">No</span>
+  </div>
+  <div role="combobox" id="fp_ms_combo" aria-expanded="false" aria-label="Total experience in months" tabindex="0"
+       style="display:inline-block; min-width:200px; padding:6px; border:1px solid #b89aad; border-radius:4px;">Choose an item</div>
+  <div role="listbox" style="display:none;">
+    <div role="option" data-value="0-1">0-1</div>
+    <div role="option" data-value="2-3">2-3</div>
+    <div role="option" data-value="4+">4+</div>
+  </div>
+</div>
+
+<!-- ══════════ CALENDAR ══════════ -->
+<div class="grid2">
+  <div class="row" data-fp-id="date-native">
+    <label for="fp_dob">Date of birth</label><br>
+    <input type="date" id="fp_dob" name="fp_dob">
+  </div>
+  <div class="row" data-fp-id="datetime-native">
+    <label for="fp_dt">Available from</label><br>
+    <input type="datetime-local" id="fp_dt" name="fp_dt">
+  </div>
+  <div class="row" data-fp-id="month-native">
+    <label for="fp_mo">Graduation month</label><br>
+    <input type="month" id="fp_mo" name="fp_mo">
+  </div>
+  <div class="row" data-fp-id="date-ddmmyyyy">
+    <div>Date of birth</div>
+    <div class="datestrip">
+      <input type="text" inputmode="numeric" maxlength="2" placeholder="DD" data-fp-part="dd" aria-label="Day">
+      <input type="text" inputmode="numeric" maxlength="2" placeholder="MM" data-fp-part="mm" aria-label="Month">
+      <input type="text" inputmode="numeric" maxlength="4" placeholder="YYYY" data-fp-part="yyyy" aria-label="Year">
+    </div>
+  </div>
+</div>
+
+<!-- Picker-driven widget: real input is readonly, needs the popup path -->
+<div class="row" data-fp-id="date-flatpickr">
+  <div id="dd-fp-label">Date of birth</div>
+  <div class="tpl-dropdown" id="fp_flatpickr" data-open="false" style="display:inline-block;">
+    <input type="text" class="flatpickr-input" readonly aria-labelledby="dd-fp-label" placeholder="Select date"
+           style="min-width:220px;">
+    <div class="flatpickr-calendar" style="display:none; position:absolute; background:#fff; border:1px solid #ae6a97; padding:6px; z-index:60;">
+      <div class="flatpickr-months"><span class="flatpickr-current-month">January 2024</span></div>
+      <div class="flatpickr-days">
+        <span class="flatpickr-day" role="button" data-date="15">15</span>
+        <span class="flatpickr-day" role="button" data-date="16">16</span>
+        <span class="flatpickr-day" role="button" data-date="17">17</span>
+        <span class="flatpickr-day" role="button" data-date="18">18</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ CONDITIONAL / WIZARD ══════════ -->
+<div class="row" data-fp-id="conditional-other">
+  <label for="fp_country2">Country</label>
+  <select id="fp_country2" name="fp_country2">
+    <option value="">Select…</option>
+    <option value="IN">India</option>
+    <option value="OTHER">Other</option>
+  </select>
+  <div id="cond-other" style="display:none; margin-top:8px;">
+    <label for="fp_country_other">Please specify your country</label>
+    <input type="text" id="fp_country_other" name="fp_country_other" placeholder="Type here">
+  </div>
+</div>
+
+<div class="row" data-fp-id="conditional-yes">
+  <div>Are you willing to relocate?</div>
+  <label><input type="radio" name="fp_prior" value="Yes" data-fp-reveal="exp-block"> Yes</label>
+  <label><input type="radio" name="fp_prior" value="No"> No</label>
+  <div id="exp-block" style="display:none; margin-top:8px;">
+    <label for="fp_company">Current company</label>
+    <input type="text" id="fp_company" name="fp_company">
+    <label for="fp_title">Job title</label>
+    <input type="text" id="fp_title" name="fp_title">
+  </div>
+</div>
+
+<!-- ══════════ RICH TEXT ══════════ -->
+<div class="row" data-fp-id="richtext">
+  <label for="fp_rich">Why are you applying?</label><br>
+  <div id="fp_rich" contenteditable="true" role="textbox" aria-multiline="true"
+       style="min-height:70px; padding:8px; background:#fff; border:1px solid #b89aad; border-radius:4px;"></div>
+</div>
+
+<!-- ══════════ SHADOW DOM ══════════ -->
+<div class="row" data-fp-id="shadow-host">
+  <div>Shadow: city</div>
+  <div id="shadow-host-el"></div>
+</div>
+
+<!-- ══════════ SAME-ORIGIN IFRAME ══════════ -->
+<div class="row" data-fp-id="iframe-host">
+  <div>Same-origin iframe below</div>
+  <iframe id="fp_iframe" src="test_forms_iframe.html" style="width:420px; height:190px; border:1px solid #b89aad;"></iframe>
+</div>
+
+<script>
+// ── Widget behaviour for the plain custom-dropdown stand-ins ──
+(function () {
+  function wire(root) {
+    root.querySelectorAll('.tpl-dropdown').forEach(function (dd) {
+      const trigger = dd.querySelector('.tpl-trigger, input, [role="combobox"]');
+      const popup = dd.querySelector('.tpl-popup, .flatpickr-calendar, [role="listbox"]');
+      const shown = dd.querySelector('.tpl-value, input');
+      if (!trigger || !popup) return;
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const open = dd.dataset.open === 'true';
+        closeAll();
+        if (open) return;
+        dd.dataset.open = 'true';
+        trigger.setAttribute('aria-expanded', 'true');
+        popup.style.display = 'block';
+      });
+      popup.querySelectorAll('.tpl-option, .flatpickr-day').forEach(function (opt) {
+        opt.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (shown.tagName === 'INPUT') {
+            shown.value = opt.textContent.trim();
+          } else {
+            shown.textContent = opt.textContent.trim();
+          }
+          if (trigger.hasAttribute('data-value')) {
+            trigger.setAttribute('data-value', opt.getAttribute('data-value') || opt.textContent.trim());
+          }
+          closeAll();
+        });
+      });
+    });
+
+    // MUI-style: list is a sibling of the trigger
+    document.querySelectorAll('.MuiSelect-select').forEach(function (trigger) {
+      const list = trigger.parentElement.querySelector('.MuiMenu-list');
+      if (!list) return;
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const open = trigger.getAttribute('aria-expanded') === 'true';
+        closeAll();
+        if (open) return;
+        trigger.setAttribute('aria-expanded', 'true');
+        list.style.display = 'block';
+      });
+      list.querySelectorAll('[role="option"]').forEach(function (opt) {
+        opt.addEventListener('click', function (e) {
+          e.stopPropagation();
+          trigger.querySelector('.tpl-value').textContent = opt.textContent.trim();
+          trigger.setAttribute('data-value', opt.getAttribute('data-value'));
+          trigger.setAttribute('aria-expanded', 'false');
+          list.style.display = 'none';
+        });
+      });
+    });
+
+    // select2-style
+    document.querySelectorAll('.select2-selection').forEach(function (trigger) {
+      const dd = trigger.closest('.select2-container');
+      const popup = dd.querySelector('.select2-dropdown');
+      if (!popup) return;
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const open = trigger.getAttribute('aria-expanded') === 'true';
+        closeAll();
+        if (open) return;
+        trigger.setAttribute('aria-expanded', 'true');
+        popup.style.display = 'block';
+      });
+      popup.querySelectorAll('[role="option"]').forEach(function (opt) {
+        opt.addEventListener('click', function (e) {
+          e.stopPropagation();
+          trigger.querySelector('.select2-selection__rendered').textContent = opt.textContent.trim();
+          trigger.setAttribute('data-value', opt.getAttribute('data-value'));
+          trigger.setAttribute('aria-expanded', 'false');
+          popup.style.display = 'none';
+        });
+      });
+    });
+
+    // Bootstrap-style
+    document.querySelectorAll('.dropdown-toggle').forEach(function (trigger) {
+      const menu = trigger.parentElement.querySelector('.dropdown-menu');
+      if (!menu) return;
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const open = trigger.getAttribute('aria-expanded') === 'true';
+        closeAll();
+        if (open) return;
+        trigger.setAttribute('aria-expanded', 'true');
+        menu.style.display = 'block';
+      });
+      menu.querySelectorAll('[role="option"]').forEach(function (opt) {
+        opt.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          trigger.textContent = opt.textContent.trim();
+          trigger.setAttribute('data-value', opt.getAttribute('data-value'));
+          trigger.setAttribute('aria-expanded', 'false');
+          menu.style.display = 'none';
+        });
+      });
+    });
+  }
+
+  function closeAll() {
+    document.querySelectorAll('.tpl-dropdown').forEach(function (dd) {
+      dd.dataset.open = 'false';
+      const t = dd.querySelector('[role="combobox"], input');
+      if (t && t.hasAttribute('aria-expanded')) t.setAttribute('aria-expanded', 'false');
+      dd.querySelectorAll('.tpl-popup, .flatpickr-calendar, [role="listbox"]').forEach(function (p) {
+        p.style.display = 'none';
+      });
+    });
+    document.querySelectorAll('.MuiMenu-list, .select2-dropdown, .dropdown-menu').forEach(function (p) {
+      p.style.display = 'none';
+    });
+    document.querySelectorAll('.MuiSelect-select, .select2-selection, .dropdown-toggle').forEach(function (t) {
+      t.setAttribute('aria-expanded', 'false');
+    });
+    closeGFormsPopup();
+  }
+
+  // GForms-style body-level popup
+  function openGFormsPopup() {
+    closeGFormsPopup();
+  const popup = document.createElement('div');
+  popup.setAttribute('role', 'listbox');
+  popup.id = 'gforms-live-listbox';
+  popup.style.cssText = 'position:absolute;background:#fff;border:1px solid #ae6a97;min-width:220px;z-index:9999;';
+  ['VIT Bhopal', 'MIT Manipal', 'IIT Bombay', 'NIT Trichy'].forEach(function (label) {
+      const o = document.createElement('div');
+      o.setAttribute('role', 'option');
+      o.setAttribute('data-value', label);
+      o.textContent = label;
+      o.style.cssText = 'padding:6px 10px;cursor:pointer;';
+      o.addEventListener('click', function () {
+        const trigger = document.getElementById('fp_gf_lb');
+        trigger.textContent = label;
+        trigger.setAttribute('data-value', label);
+        trigger.setAttribute('aria-expanded', 'false');
+        closeGFormsPopup();
+      });
+      popup.appendChild(o);
+    });
+    document.getElementById('gforms-popup-host').appendChild(popup);
+  }
+  function closeGFormsPopup() {
+    const el = document.getElementById('gforms-live-listbox');
+    if (el) el.remove();
+  }
+
+  const gfTrigger = document.getElementById('fp_gf_lb');
+  if (gfTrigger) {
+    gfTrigger.addEventListener('click', function (e) {
+      // stopPropagation matters: the page-level closeAll() below would
+      // otherwise bubble up and immediately close the popup we just opened.
+      e.stopPropagation();
+      if (gfTrigger.getAttribute('aria-expanded') === 'true') { closeGFormsPopup(); gfTrigger.setAttribute('aria-expanded', 'false'); }
+      else { gfTrigger.setAttribute('aria-expanded', 'true'); openGFormsPopup(); }
+    });
+  }
+
+  // ARIA radio (Google Forms / MS Forms style)
+  document.querySelectorAll('[role="radiogroup"]').forEach(function (group) {
+    const radios = group.querySelectorAll('[role="radio"]');
+    radios.forEach(function (radio) {
+      radio.addEventListener('click', function () {
+        radios.forEach(function (r) { r.setAttribute('aria-checked', 'false'); });
+        radio.setAttribute('aria-checked', 'true');
+      });
+    });
+  });
+
+  // MS Forms combobox: options appear in a sibling listbox on click.
+  const msCombo = document.getElementById('fp_ms_combo');
+  if (msCombo) {
+    const list = msCombo.parentElement.querySelector('[role="listbox"]');
+    msCombo.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const open = msCombo.getAttribute('aria-expanded') === 'true';
+      if (open) { list.style.display = 'none'; msCombo.setAttribute('aria-expanded', 'false'); return; }
+      list.style.display = 'block';
+      list.style.cssText += ';position:absolute;background:#fff;border:1px solid #ae6a97;min-width:200px;z-index:60;';
+      msCombo.setAttribute('aria-expanded', 'true');
+    });
+    list.querySelectorAll('[role="option"]').forEach(function (opt) {
+      opt.addEventListener('click', function (e) {
+        e.stopPropagation();
+        msCombo.textContent = opt.textContent.trim();
+        msCombo.setAttribute('data-value', opt.getAttribute('data-value'));
+        msCombo.setAttribute('aria-expanded', 'false');
+        list.style.display = 'none';
+      });
+    });
+  }
+
+  document.addEventListener('click', closeAll);
+  wire(document);
+
+  // ── Conditional reveal ──
+  document.getElementById('fp_country2').addEventListener('change', function () {
+    document.getElementById('cond-other').style.display = this.value === 'OTHER' ? 'block' : 'none';
+  });
+  document.querySelectorAll('[data-fp-reveal]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      document.getElementById(radio.getAttribute('data-fp-reveal')).style.display = 'block';
+    });
+  });
+
+  // ── Shadow DOM host ──
+  const host = document.getElementById('shadow-host-el');
+  if (host && host.attachShadow) {
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML =
+      '<div>City</div>' +
+      '<select id="fp_shadow_city"><option value="">Select…</option>' +
+      '<option value="Bhopal">Bhopal</option><option value="Indore">Indore</option></select>';
+  }
+})();
+</script>
+</body>
+</html>

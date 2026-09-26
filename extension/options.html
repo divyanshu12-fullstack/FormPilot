@@ -114,8 +114,70 @@
               <div class="form-grid">
                 <div class="form-group"><label>Current Title</label><input type="text" name="current_title"></div>
                 <div class="form-group"><label>Current Company</label><input type="text" name="current_company"></div>
-                <div class="form-group"><label>Years of Experience</label><input type="number" name="experience_years"></div>
+                <div class="form-group"><label>Years of Experience</label><input type="number" name="experience_years" step="0.5" min="0"></div>
+                <div class="form-group"><label>Total Experience (months)</label><input type="number" name="total_experience_months" min="0" placeholder="e.g. 24"></div>
+                <div class="form-group"><label>Notice Period (days)</label><input type="number" name="notice_period_days" min="0" placeholder="e.g. 30"></div>
+                <div class="form-group"><label>Preferred Location</label><input type="text" name="preferred_location" placeholder="e.g. Bhopal"></div>
+                <div class="form-group"><label>Work Authorised to Work</label>
+                  <select name="work_authorization">
+                    <option value="">Not set</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group"><label>Willing to Relocate</label>
+                  <select name="relocation_ok">
+                    <option value="">Not set</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group"><label>Open to Remote Work</label>
+                  <select name="remote_work_ok">
+                    <option value="">Not set</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group"><label>Gender</label>
+                  <select name="gender">
+                    <option value="">Prefer not to say</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>
+                Education
+              </legend>
+              <div class="form-grid">
+                <div class="form-group"><label>Date of Birth</label><input type="date" name="dob"></div>
+                <div class="form-group"><label>Graduation Year</label><input type="text" name="graduation_year" inputmode="numeric" placeholder="e.g. 2024"></div>
+                <div class="form-group"><label>Degree</label><input type="text" name="degree" placeholder="e.g. B.Tech"></div>
+                <div class="form-group"><label>Branch / Specialisation</label><input type="text" name="branch" placeholder="e.g. Computer Science"></div>
+                <div class="form-group"><label>College / University</label><input type="text" name="college_name" placeholder="e.g. VIT Bhopal"></div>
                 <div class="form-group"><label>CGPA</label><input type="text" name="cgpa" placeholder="e.g. 9.01/10.00"></div>
+                <div class="form-group"><label>10th Percentage</label><input type="text" name="tenth_percent" placeholder="e.g. 92"></div>
+                <div class="form-group"><label>12th Percentage</label><input type="text" name="twelfth_percent" placeholder="e.g. 94"></div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                Skills &amp; Languages
+              </legend>
+              <p class="field-hint" style="font-size: 12px; margin: 0 0 10px; color: var(--text-muted);">
+                Comma-separated. Only used to tick matching options in "select all that apply" questions — nothing is ever guessed.
+              </p>
+              <div class="form-grid">
+                <div class="form-group full-width"><label>Skills</label><input type="text" name="skills" placeholder="e.g. JavaScript, React, Python"></div>
+                <div class="form-group full-width"><label>Languages</label><input type="text" name="languages" placeholder="e.g. English, Hindi"></div>
               </div>
             </fieldset>
             
@@ -254,6 +316,19 @@
             <div class="pref-control toggle-switch">
               <input type="checkbox" id="auto-draft-toggle">
               <label for="auto-draft-toggle" class="slider-round"></label>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="pref-group">
+            <div class="pref-info">
+              <h3>Tick Consent Checkboxes Automatically</h3>
+              <p>Ticks boxes like "I agree to the terms" or "I hereby declare…" for you. Leave this <strong>off</strong> if you would rather review legal attestation yourself — FormPilot will count them and leave them for you instead.</p>
+            </div>
+            <div class="pref-control toggle-switch">
+              <input type="checkbox" id="consent-ticks-toggle">
+              <label for="consent-ticks-toggle" class="slider-round"></label>
             </div>
           </div>
           
