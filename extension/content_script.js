@@ -1,24 +1,13 @@
 // ── FormPilot Content Script ──
-// Scans pages for fillable controls using platform-specific adapters,
-// resolves each control's kind, matches it against local data, and fills it
-// with read-back verification. Talks to the popup/SW via chrome.runtime.
+// Scans the active page for fillable controls, matches them against the local
+// profile, and fills only supported, unambiguous fields.
 
 // ═══════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════
 
-let fpSettings = { highlightDuration: 3, autoDraftMode: false, allowConsentTicks: false };
-
-chrome.storage.sync.get(
-  { highlightDuration: 3, autoDraftMode: false, allowConsentTicks: false },
-  (items) => { fpSettings = items; }
-);
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'sync') return;
-  if (changes.highlightDuration) fpSettings.highlightDuration = changes.highlightDuration.newValue;
-  if (changes.autoDraftMode) fpSettings.autoDraftMode = changes.autoDraftMode.newValue;
-  if (changes.allowConsentTicks) fpSettings.allowConsentTicks = changes.allowConsentTicks.newValue;
-});
+const FormPilotAPI = globalThis.browser || globalThis.chrome;
+let fpSettings = { highlightDuration: 3 };
 
 const MAX_AUTOFILL_PASSES = 4;
 const DOM_SETTLE_MS = 450;
@@ -74,11 +63,6 @@ function waitForDomSettle(ms = DOM_SETTLE_MS, maxMs = 1500) {
   });
 }
 
-function debounce(fn, delay) {
-  let timer;
-  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
-}
-
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -95,58 +79,6 @@ function injectHighlightStyles() {
       outline: 2px solid #2d8a4e !important;
       outline-offset: 2px !important;
       box-shadow: 0 0 8px rgba(45, 138, 78, 0.4) !important;
-    }
-    [data-formpilot-highlight="medium"] {
-      outline: 2px solid #c4930a !important;
-      outline-offset: 2px !important;
-      box-shadow: 0 0 8px rgba(196, 147, 10, 0.4) !important;
-    }
-    [data-formpilot-highlight="draft"] {
-      outline: 2px solid #2b6cb0 !important;
-      outline-offset: 2px !important;
-      box-shadow: 0 0 8px rgba(43, 108, 176, 0.4) !important;
-    }
-    .formpilot-sparkle {
-      position: fixed !important;
-      width: 22px !important;
-      height: 22px !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      font-size: 15px !important;
-      line-height: 1 !important;
-      cursor: pointer !important;
-      z-index: 2147483000 !important;
-      user-select: none !important;
-      background: #f8f0ea !important;
-      border: 1px solid #ae6a97 !important;
-      border-radius: 50% !important;
-      box-shadow: 0 1px 4px rgba(86, 29, 70, 0.25) !important;
-      padding: 0 !important;
-      margin: 0 !important;
-    }
-    .formpilot-sparkle:hover, .formpilot-sparkle:focus-visible {
-      transform: scale(1.15) !important;
-      outline: 2px solid #ae6a97 !important;
-      outline-offset: 1px !important;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .formpilot-sparkle { transition: none !important; }
-    }
-    #formpilot-draft-dialog {
-      position: fixed !important;
-      z-index: 2147483001 !important;
-      display: none;
-      background-color: #f8f0ea !important;
-      border: 2px solid #ae6a97 !important;
-      border-radius: 8px !important;
-      padding: 12px !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-      width: min(320px, 90vw) !important;
-      max-height: 80vh !important;
-      overflow: auto !important;
-      font-family: sans-serif !important;
-      box-sizing: border-box !important;
     }
   `;
   document.head.appendChild(style);
@@ -385,7 +317,7 @@ function isDateField(field) {
   return false;
 }
 
-// Native date/time inputs (browser calendar UI) — never auto-fill or sparkle.
+// Native date/time inputs (browser calendar UI) need format-aware handling.
 function isNativeDateInput(field) {
   if (!field || !field.element) return false;
   const t = ((field.element.type || '') + '').toLowerCase();
@@ -1237,37 +1169,6 @@ function collectFields() {
 }
 
 // ═══════════════════════════════════════
-// MUTATION OBSERVER — re-scans when new form elements appear (SPA support)
-// ═══════════════════════════════════════
-
-const FORM_SELECTORS = 'input, select, textarea, [role="listbox"], [role="radiogroup"], [role="combobox"], ' +
-  '[role="textbox"], [role="group"], [role="checkbox"], [role="switch"], [contenteditable="true"], ' +
-  '[aria-haspopup="listbox"], .MuiSelect-select, .select2-selection, .dropdown-toggle';
-
-const debouncedRescan = debounce(() => {
-  const prev = cachedFields.length;
-  collectFields();
-  if (cachedFields.length !== prev) {
-    console.log(`[FormPilot] Rescan: ${prev} → ${cachedFields.length} fields`);
-    chrome.runtime.sendMessage({ action: 'forms_detected', count: cachedFields.length }).catch(() => {});
-  }
-  if (typeof pruneDetachedSparkles === 'function') pruneDetachedSparkles();
-  if (typeof scheduleSparkleReposition === 'function') scheduleSparkleReposition();
-}, 500);
-
-const domObserver = new MutationObserver((mutations) => {
-  for (const mutation of mutations) {
-    for (const node of mutation.addedNodes) {
-      if (node.nodeType !== Node.ELEMENT_NODE) continue;
-      if (node.matches?.(FORM_SELECTORS) || node.querySelector?.(FORM_SELECTORS)) {
-        debouncedRescan();
-        return;
-      }
-    }
-  }
-});
-
-// ═══════════════════════════════════════
 // IFRAME WARNING
 // ═══════════════════════════════════════
 
@@ -1333,18 +1234,13 @@ function matchField(field, profile, corrections = {}) {
   // Consent / attestation boxes are never matched to profile data.
   if (field.isConsent) return null;
 
-  // 1. Corrections first (exact + normalized fallback)
-  if (corrections) {
-    if (corrections[label] !== undefined) {
-      return { type: 'correction', value: corrections[label] };
-    }
-    // Fallback: corrections saved with slightly different punctuation/
-    // casing ("Email Address *" vs "email address") still hit.
-    for (const [savedLabel, savedValue] of Object.entries(corrections)) {
-      if (normalizeLabel(savedLabel) === label) {
-        return { type: 'correction', value: savedValue };
-      }
-    }
+  // 1. A correction is reusable only on the same site and matching label.
+  if (Array.isArray(corrections)) {
+    const domain = window.location.hostname.toLowerCase();
+    const correction = corrections.find(item => item
+      && item.domain === domain
+      && normalizeLabel(item.field_label) === label);
+    if (correction) return { type: 'correction', value: correction.corrected_value };
   }
 
   // 2. Signatures (case-insensitive + punctuation-insensitive)
@@ -1357,8 +1253,7 @@ function matchField(field, profile, corrections = {}) {
       || (normName && normName.includes(normSig))
       || (normId && normId.includes(normSig))) {
       const value = getProfileValue(type, profile);
-      // Empty profile value → treat as miss so LLM/sparkle can try,
-      // instead of a silent fillField failure.
+      // An empty profile value is a miss, not something to write into the form.
       if (value === '' || value === null || value === undefined) return null;
       return { type, value };
     }
@@ -1382,8 +1277,7 @@ function matchField(field, profile, corrections = {}) {
   }
   if (best) {
     const value = getProfileValue(best.type, profile);
-    // Empty profile value → treat as miss so LLM/sparkle can try,
-    // instead of a silent fillField failure.
+    // An empty profile value is a miss, not something to write into the form.
     if (value === '' || value === null || value === undefined) return null;
     return { type: best.type, value };
   }
@@ -1622,8 +1516,7 @@ async function fillCustomDropdown(field, option, matchData) {
  * Main entry point. Chooses the strategy for the field's kind, then verifies
  * the result by reading the control back.
  *
- * @param matchData { type, value, choose? } — `choose` lets the LLM pin an
- *        exact option; otherwise `value` is resolved against the options.
+ * @param matchData { type, value } — value is resolved against supported options.
  */
 async function fillField(field, matchData) {
   if (!matchData) return fail(FILL_NO_VALUE);
@@ -1636,35 +1529,34 @@ async function fillField(field, matchData) {
   // ── File inputs: cannot be scripted ──
   if (kind === FIELD_KIND.FILE) return fail(FILL_UNSUPPORTED, 'file');
 
-  // ── Consent boxes: only ever ticked with explicit opt-in ──
-  if (field.isConsent && !fpSettings.allowConsentTicks) {
+  // Legal agreements and attestations are always left for the user.
+  if (field.isConsent) {
     return fail(FILL_SKIPPED, 'consent');
   }
 
   // ── Rich text ──
   if (kind === FIELD_KIND.RICH_TEXT) {
-    if (hasUserValue(field) && matchData.type !== 'correction') return fail(FILL_SKIPPED);
+    if (hasUserValue(field)) return fail(FILL_SKIPPED);
     return fillRichText(field, val);
   }
 
   // ── Dates ──
   if (DATE_KINDS.has(kind)) {
-    if (hasUserValue(field) && matchData.type !== 'correction') return fail(FILL_SKIPPED);
+    if (hasUserValue(field)) return fail(FILL_SKIPPED);
     return kind === FIELD_KIND.DATE_PARTS ? fillDateParts(field, val) : fillDateField(field, val);
   }
 
   // ── Multi-value choice controls ──
   if (kind === FIELD_KIND.MULTI_SELECT) {
-    if (hasUserValue(field) && matchData.type !== 'correction') return fail(FILL_SKIPPED);
-    // Only fill from a genuine list (profile skills/languages). Never let the
-    // LLM's single scalar string fan out across a multi-select.
+    if (hasUserValue(field)) return fail(FILL_SKIPPED);
+    // Only fill from a genuine list (profile skills/languages).
     const { options: hits } = resolveMultipleOptions(field.options, val);
     if (!hits.length) return fail(FILL_NO_OPTION, val);
     return fillSelectMultiple(field, hits);
   }
 
   if (kind === FIELD_KIND.CHECKBOX_MULTI) {
-    if (hasUserValue(field) && matchData.type !== 'correction') return fail(FILL_SKIPPED);
+    if (hasUserValue(field)) return fail(FILL_SKIPPED);
     const entries = toList(val);
     let targets = [];
     if (entries.length > 1) {
@@ -1688,31 +1580,23 @@ async function fillField(field, matchData) {
 
   // ── Single-choice controls ──
   if (CHOICE_KINDS.has(kind)) {
-    if (hasUserValue(field) && matchData.type !== 'correction') return fail(FILL_SKIPPED);
+    if (hasUserValue(field)) return fail(FILL_SKIPPED);
 
     // A custom dropdown is special: its options usually do not exist until the
     // list is opened, so we cannot pick a target up front. Hand the desired
     // text straight to the widget, which opens, reads and clicks.
     if (kind === FIELD_KIND.CUSTOM_DROPDOWN) {
-      const desired = matchData.choose || (CHOICE_KINDS.has(kind) && typeof val === 'string' ? val : val);
-      if (isDeferredOption(String(desired)) && !matchData.choose) return fail(FILL_DEFERRED, desired);
+      const desired = val;
+      if (isDeferredOption(String(desired))) return fail(FILL_DEFERRED, desired);
       return fillCustomDropdown(field, { text: String(desired), value: String(desired) }, matchData);
     }
 
-    // An explicit `choose` from the option-aware LLM path wins.
-    let target = null;
-    if (matchData.choose) {
-      target = resolveOption(field.options, matchData.choose, matchData.type).option;
-    }
-    if (!target) {
-      const { option, reason } = resolveOption(field.options, val, matchData.type);
-      if (!option) return fail(reason || FILL_NO_OPTION, val);
-      target = option;
-    }
+    const { option: target, reason } = resolveOption(field.options, val, matchData.type);
+    if (!target) return fail(reason || FILL_NO_OPTION, val);
 
     // A "none of the above" style pick is only safe if nothing better exists,
     // and never as a blanket default.
-    if (isDeferredOption(target.text) && !matchData.choose) {
+    if (isDeferredOption(target.text)) {
       return fail(FILL_DEFERRED, target.text);
     }
 
@@ -1723,7 +1607,7 @@ async function fillField(field, matchData) {
   }
 
   // ── Plain text-ish inputs ──
-  if (hasUserValue(field) && matchData.type !== 'correction') return fail(FILL_SKIPPED);
+  if (hasUserValue(field)) return fail(FILL_SKIPPED);
   const el = field.element;
   const text = Array.isArray(val) ? toList(val).join(', ') : String(val);
   if (kind === FIELD_KIND.NUMBER) {
@@ -1754,23 +1638,29 @@ function isSensitiveField(label) {
   return false;
 }
 
+function isProtectedDemographicField(label) {
+  const normalized = normalizeLabel(label);
+  return PROTECTED_DEMOGRAPHIC_KEYWORDS.some(keyword =>
+    labelHasToken(normalized, normalizeLabel(keyword)));
+}
+
 function sendCorrection(label, value) {
-  chrome.runtime.sendMessage({
+  const send = globalThis.browser
+    ? globalThis.browser.runtime.sendMessage
+    : (message) => new Promise((resolve, reject) => {
+      globalThis.chrome.runtime.sendMessage(message, (response) => {
+        const error = globalThis.chrome.runtime.lastError;
+        if (error) reject(new Error(error.message || 'Message failed'));
+        else resolve(response);
+      });
+    });
+
+  send.call(globalThis.browser || globalThis.chrome, {
     action: 'save_correction',
     field_label: label,
     corrected_value: value,
     field_kind: 'value'
-  }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.error('[FormPilot] Failed to send correction message:', chrome.runtime.lastError);
-      return;
-    }
-    if (response && response.success) {
-      console.log(`[FormPilot] Correction saved via proxy: "${label}" -> "${value}"`);
-    } else {
-      console.error('[FormPilot] Failed to save correction via proxy:', response?.error);
-    }
-  });
+  }).catch(() => console.warn('[FormPilot] Could not save a correction locally.'));
 }
 
 function trackFieldCorrections(field, filledValue) {
@@ -1803,7 +1693,6 @@ function trackFieldCorrections(field, filledValue) {
 
   el.addEventListener('blur', handler);
   el.addEventListener('change', handler);
-  el.addEventListener('input', handler);
   // Choice widgets live in divs; they emit click, not change.
   if (CHOICE_KINDS.has(field.kind) || field.widgetRole === 'radiogroup' || field.widgetRole === 'checkboxgroup') {
     el.addEventListener('click', handler);
@@ -1826,6 +1715,7 @@ function makeReport() {
     skipped: 0,
     failed: 0,
     consent: 0,
+    blocked: 0,
     unmatched: 0,
     failures: []
   };
@@ -1861,171 +1751,59 @@ function recordResult(report, field, result) {
   }
 }
 
-/** Resolve a field against profile + corrections, then fill it. */
+/** Resolve a field using only locally stored profile values and corrections. */
 async function processField(field, ctx) {
   const label = fieldLabelOf(field);
+  const report = ctx.report;
+
+  if (!label) {
+    report.unmatched++;
+    return;
+  }
+  if (isSensitiveField(label)
+    || (field.element && field.element.type === 'password')
+    || (isProtectedDemographicField(label) && !fpSettings.allowProtectedDemographicAutofill)) {
+    report.blocked++;
+    return;
+  }
+  if (field.isConsent) {
+    report.consent++;
+    return;
+  }
+  if (field.kind === FIELD_KIND.FILE) {
+    report.unsupported++;
+    return;
+  }
+
   const match = matchField(field, ctx.profile, ctx.corrections);
-
-  if (match) {
-    if (match.value === '' || match.value === null || match.value === undefined) {
-      return { matched: false, label };
-    }
-    const result = await fillField(field, match);
-    const success = recordResult(ctx.report, field, result);
-    if (success) {
-      trackFieldCorrections(field, result.value);
-      applyHighlight(field.element, match.type === 'correction' ? 'medium' : 'high');
-    }
-    return { matched: true, filled: success, label };
+  if (!match || match.value === '' || match.value === null || match.value === undefined) {
+    report.unmatched++;
+    report.failures.push({ label, kind: field.kind, status: 'unmatched' });
+    if (!hasUserValue(field)) trackFieldCorrections(field, currentValueOf(field));
+    return;
   }
 
-  // Not resolvable locally. Queue for the LLM pass unless it is off-limits.
-  if (!label) return { matched: false, label: '' };
-  if (isSensitiveField(label)) return { matched: false, label, blocked: 'sensitive' };
-  if (field.element && field.element.type === 'password') return { matched: false, label, blocked: 'password' };
-  if (isNativeDateInput(field)) return { matched: false, label, blocked: 'native-date' };
-  if (field.isConsent) { ctx.report.consent++; return { matched: false, label, blocked: 'consent' }; }
-  if (field.kind === FIELD_KIND.FILE) { ctx.report.unsupported++; return { matched: false, label, blocked: 'file' }; }
-
-  ctx.pending.push({
-    field,
-    label,
-    kind: field.kind,
-    options: field.options.map(o => ({ value: o.value, text: o.text })).slice(0, 40)
-  });
-  return { matched: false, label, queued: true };
-}
-
-/** One LLM batch for everything queued this pass, then apply and fill. */
-async function runLlmPass(ctx) {
-  const queue = ctx.pending;
-  ctx.pending = [];
-  if (!queue.length) return;
-
-  // Never ask the same question twice in one fill.
-  const fresh = queue.filter(item => !ctx.llmCache.has(normalizeLabel(item.label)));
-  if (!fresh.length) return;
-
-  console.log(`[FormPilot] Requesting LLM mapping for ${fresh.length} fields:`, fresh.map(f => f.label));
-
-  let mappings = null;
-  try {
-    const resp = await new Promise(resolve => {
-      chrome.runtime.sendMessage({
-        action: 'match_fields',
-        unmatched_fields: fresh.map(f => ({ label: f.label, kind: f.kind, options: f.options }))
-      }, resolve);
-    });
-    if (resp && resp.success && resp.mappings) mappings = resp.mappings;
-    else {
-      const errMsg = (resp && resp.error) ? resp.error : JSON.stringify(resp);
-      console.error('[FormPilot] Failed to get LLM mappings:', errMsg);
-    }
-  } catch (e) {
-    console.error('[FormPilot] LLM Fallback failed:', e);
-  }
-
-  for (const item of fresh) {
-    const norm = normalizeLabel(item.label);
-    let entry = mappings ? (mappings[item.label] ?? lookupNormalized(mappings, item.label)) : undefined;
-
-    if (entry === undefined || entry === null) {
-      ctx.llmCache.set(norm, null);
-      if (!fpSettings.autoDraftMode) injectSparkleIcon(item.field, item.label);
-      else await autoDraft(item.field, item.label, ctx);
-      continue;
-    }
-
-    // Accept both the option-aware shape {key, choose} and the legacy bare key.
-    let key = entry;
-    let choose = null;
-    if (typeof entry === 'object' && entry !== null) {
-      key = entry.key ?? entry.mapping ?? null;
-      choose = entry.choose ?? entry.option ?? null;
-    }
-    ctx.llmCache.set(norm, { key, choose });
-
-    if (!key) {
-      if (fpSettings.autoDraftMode) await autoDraft(item.field, item.label, ctx);
-      else injectSparkleIcon(item.field, item.label);
-      continue;
-    }
-
-    let valueToFill = '';
-    let fromResume = false;
-    if (key.startsWith('profile.') && ctx.profile) {
-      const k = key.split('.')[1];
-      valueToFill = ctx.profile[k];
-      console.log(`[FormPilot] Mapping "${item.label}" -> profile.${k} = "${valueToFill}"`);
-    } else if (key.startsWith('resume.') && ctx.resume) {
-      fromResume = true;
-      const k = key.split('.')[1];
-      const resumeVals = ctx.resume[k];
-      valueToFill = Array.isArray(resumeVals) ? resumeVals.join('\n') : resumeVals;
-      console.log(`[FormPilot] Mapping "${item.label}" -> resume.${k} = [len:${valueToFill ? String(valueToFill).length : 0}]`);
-    }
-
-    if (valueToFill === '' || valueToFill === null || valueToFill === undefined) {
-      console.log(`[FormPilot] No data found in profile/resume for key: ${key}`);
-      if (!fpSettings.autoDraftMode) injectSparkleIcon(item.field, item.label);
-      continue;
-    }
-
-    const match = { value: valueToFill, type: 'llm', choose };
-    const result = await fillField(item.field, match);
-    const success = recordResult(ctx.report, item.field, result);
-    if (success) {
-      trackFieldCorrections(item.field, result.value);
-      applyHighlight(item.field.element, fromResume ? 'draft' : 'medium');
-      console.log(`[FormPilot] Filled "${item.label}" using LLM fallback.`);
-    } else {
-      console.warn(`[FormPilot] Could not fill "${item.label}" (${result.status}).`);
-      if (!fpSettings.autoDraftMode) injectSparkleIcon(item.field, item.label);
-    }
-  }
-}
-
-function lookupNormalized(mappings, label) {
-  const norm = normalizeLabel(label);
-  for (const [k, v] of Object.entries(mappings)) {
-    if (normalizeLabel(k) === norm) return v;
-  }
-  return undefined;
-}
-
-async function autoDraft(field, label, ctx) {
-  try {
-    const resp = await new Promise(resolve => {
-      chrome.runtime.sendMessage({
-        action: 'draft_answer',
-        questions: [label],
-        user_context: '',
-        use_profile: true
-      }, resolve);
-    });
-    if (!resp || !resp.success || !resp.drafts) return;
-    const text = resp.drafts[label] ?? resp.drafts[Object.keys(resp.drafts).find(k => normalizeLabel(k) === normalizeLabel(label))];
-    if (!text) return;
-    const result = await fillField(field, { value: text, type: 'llm' });
-    if (result.status === FILL_OK) {
-      recordResult(ctx.report, field, result);
-      trackFieldCorrections(field, text);
-      applyHighlight(field.element, 'draft');
-    }
-  } catch (e) {
-    console.error('[FormPilot] Auto-draft failed for', label, e);
+  const result = await fillField(field, match);
+  if (recordResult(report, field, result)) {
+    trackFieldCorrections(field, result.value);
+    applyHighlight(field.element, 'high');
   }
 }
 
 /** The full autofill run. */
 async function runAutofill(message) {
+  const requestedDuration = Number(message.preferences && message.preferences.highlightDuration);
+  fpSettings.highlightDuration = Number.isFinite(requestedDuration)
+    ? Math.max(1, Math.min(10, requestedDuration))
+    : 3;
+  fpSettings.allowProtectedDemographicAutofill = Boolean(
+    message.preferences && message.preferences.allowProtectedDemographicAutofill
+  );
+
   const ctx = {
     profile: message.profile || {},
-    corrections: message.corrections || {},
-    resume: message.resume || {},
-    report: makeReport(),
-    pending: [],
-    llmCache: new Map()
+    corrections: Array.isArray(message.corrections) ? message.corrections : [],
+    report: makeReport()
   };
 
   const processed = new Set();
@@ -2049,8 +1827,6 @@ async function runAutofill(message) {
         await processField(field, ctx);
       }
 
-      await runLlmPass(ctx);
-
       if (pass < MAX_AUTOFILL_PASSES - 1) {
         await waitForDomSettle();
         // Stop early when nothing new appeared.
@@ -2060,10 +1836,6 @@ async function runAutofill(message) {
       }
     }
   } finally {
-    // Learn from fields we never touched too.
-    for (const field of collectFields()) {
-      if (!filledFieldsMap.has(field.element)) trackFieldCorrections(field, '');
-    }
     isAutoFilling = false;
   }
 
@@ -2072,7 +1844,7 @@ async function runAutofill(message) {
     success: true,
     matched: r.filled,
     filled: r.filled,
-    needsReview: Math.max(0, r.noOption + r.noValue + r.deferred + r.failed + r.unsupported),
+    needsReview: Math.max(0, r.noOption + r.noValue + r.deferred + r.failed + r.unsupported + r.unmatched + r.blocked + r.consent),
     report: {
       filled: r.filled,
       noOption: r.noOption,
@@ -2082,6 +1854,7 @@ async function runAutofill(message) {
       skipped: r.skipped,
       failed: r.failed,
       consent: r.consent,
+      blocked: r.blocked,
       unmatched: r.unmatched,
       failures: r.failures.slice(0, 25)
     }
@@ -2089,39 +1862,16 @@ async function runAutofill(message) {
 }
 
 // ═══════════════════════════════════════
-// MESSAGE HANDLER — responds to popup actions
+// MESSAGE HANDLER — responds to an explicit toolbar action
 // ═══════════════════════════════════════
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'scan') {
-    const fields = collectFields();
-    sendResponse({
-      fieldCount: fields.length,
-      platform: currentPlatform,
-      fields: fields.map(f => ({
-        labelText: f.labelText,
-        kind: f.kind,
-        type: f.type,
-        id: f.id,
-        name: f.name,
-        isCustomWidget: f.isCustomWidget,
-        isConsent: !!f.isConsent,
-        sectionContext: f.sectionContext,
-        optionCount: f.options.length,
-        currentValue: currentValueOf(f)
-      }))
-    });
-    return true;
-  }
-
+FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'autofill') {
     if (!message.profile) {
       sendResponse({ success: false, error: 'No profile data received.' });
       return true;
     }
     runAutofill(message).then(result => {
-      // Report to the SW so per-frame results aggregate into one badge.
-      try { chrome.runtime.sendMessage({ action: 'autofill_done', report: result.report || {} }); } catch (e) { /* ignore */ }
       sendResponse(result);
     }).catch(err => {
       console.error('[FormPilot] Autofill failed:', err);
@@ -2131,281 +1881,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === 'autofill_error') {
-    console.error('[FormPilot]', message.error);
-    sendResponse({ success: false, error: message.error });
-    return true;
-  }
-
-  if (message.action === 'scroll_to_review') {
-    const el = document.querySelector('[data-formpilot-highlight="medium"], [data-formpilot-highlight="draft"], .formpilot-sparkle, [data-formpilot-failed]');
-    if (el) {
-      const target = (el.classList && el.classList.contains('formpilot-sparkle') && el.fieldRef && el.fieldRef.element) ? el.fieldRef.element : el;
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      if (!el.classList || !el.classList.contains('formpilot-sparkle')) {
-        const origOutline = el.style.outline;
-        el.style.outline = '3px solid #ae6a97';
-        setTimeout(() => el.style.outline = origOutline, 1500);
-      }
-    }
-    sendResponse({ success: true });
-    return true;
-  }
-
   return false;
 });
-
-// ═══════════════════════════════════════
-// INLINE AI ASSIST ("✨" sparkle)
-// ═══════════════════════════════════════
-
-let currentDraftField = null;
-let currentSparkleEl = null;
-const sparkleRegistry = []; // { sparkle, field, label, anchor }
-let sparkleReposScheduled = false;
-
-function getSparkleAnchor(field) {
-  const el = field.element;
-  if (!el) return null;
-  if (field.isCustomWidget || CHOICE_KINDS.has(field.kind)) {
-    const inner = el.querySelector('input:not([type="hidden"]), [role="radio"], [role="checkbox"], [role="option"], [role="textbox"]');
-    if (inner && isVisible(inner)) return inner;
-  }
-  return el;
-}
-
-function positionSparkle(entry) {
-  const { sparkle, field } = entry;
-  const anchor = getSparkleAnchor(field);
-  if (!anchor || !document.contains(anchor) || !isVisible(anchor)) {
-    sparkle.style.display = 'none';
-    return;
-  }
-  if (sparkle.dataset.fpDone === 'true') return;
-  const rect = anchor.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0) { sparkle.style.display = 'none'; return; }
-  sparkle.style.display = 'flex';
-  const isTextLike = !field.isCustomWidget && !CHOICE_KINDS.has(field.kind) &&
-    (anchor.tagName === 'INPUT' || anchor.tagName === 'TEXTAREA' || anchor.tagName === 'SELECT');
-  if (isTextLike && rect.width > 80) {
-    sparkle.style.left = (rect.right - 28) + 'px';
-    sparkle.style.top = (rect.top + rect.height / 2 - 11) + 'px';
-  } else {
-    sparkle.style.left = (rect.right + 4) + 'px';
-    sparkle.style.top = (rect.top + rect.height / 2 - 11) + 'px';
-  }
-}
-
-function scheduleSparkleReposition() {
-  if (sparkleReposScheduled) return;
-  sparkleReposScheduled = true;
-  requestAnimationFrame(() => {
-    sparkleReposScheduled = false;
-    for (const entry of sparkleRegistry) positionSparkle(entry);
-    const dialog = document.getElementById('formpilot-draft-dialog');
-    if (dialog && dialog.style.display === 'block' && currentSparkleEl) {
-      if (!document.contains(currentSparkleEl) || currentSparkleEl.style.display === 'none') {
-        dialog.style.display = 'none';
-      } else {
-        positionDraftDialog(currentSparkleEl);
-      }
-    }
-  });
-}
-
-function pruneDetachedSparkles() {
-  for (let i = sparkleRegistry.length - 1; i >= 0; i--) {
-    const entry = sparkleRegistry[i];
-    const anchor = entry.field.element;
-    if (!anchor || !document.contains(anchor)) {
-      entry.sparkle.remove();
-      sparkleRegistry.splice(i, 1);
-    }
-  }
-}
-
-function positionDraftDialog(sparkleEl) {
-  const dialog = document.getElementById('formpilot-draft-dialog');
-  if (!dialog || !sparkleEl) return;
-  const sRect = sparkleEl.getBoundingClientRect();
-  const dialogWidth = Math.min(320, Math.floor(window.innerWidth * 0.9));
-  const estHeight = dialog.offsetHeight > 10 ? dialog.offsetHeight : 230;
-  let dLeft = Math.round(sRect.left - dialogWidth + 20);
-  dLeft = Math.max(10, Math.min(dLeft, window.innerWidth - dialogWidth - 10));
-  let dTop = Math.round(sRect.bottom + 6);
-  if (dTop + estHeight > window.innerHeight - 10) {
-    dTop = Math.round(sRect.top - estHeight - 6);
-  }
-  if (dTop < 10) dTop = 10;
-  dialog.style.left = dLeft + 'px';
-  dialog.style.top = dTop + 'px';
-}
-
-function openDraftDialog(field, label, sparkleEl) {
-  currentDraftField = field;
-  currentSparkleEl = sparkleEl || null;
-  const dialog = document.getElementById('formpilot-draft-dialog');
-  if (!dialog) return;
-  document.getElementById('formpilot-draft-label').textContent = label;
-  document.getElementById('formpilot-draft-context').value = '';
-  dialog.style.display = 'block';
-  positionDraftDialog(sparkleEl);
-  const ta = document.getElementById('formpilot-draft-context');
-  if (ta) ta.focus();
-}
-
-function closeDraftDialog(returnFocus = true) {
-  const dialog = document.getElementById('formpilot-draft-dialog');
-  if (dialog) dialog.style.display = 'none';
-  if (returnFocus && currentSparkleEl && document.contains(currentSparkleEl)) {
-    currentSparkleEl.focus({ preventScroll: true });
-  }
-  currentDraftField = null;
-  currentSparkleEl = null;
-}
-
-function createDraftDialog() {
-  if (document.getElementById('formpilot-draft-dialog')) return;
-
-  const dialog = document.createElement('div');
-  dialog.id = 'formpilot-draft-dialog';
-  dialog.setAttribute('role', 'dialog');
-  dialog.setAttribute('aria-modal', 'false');
-  dialog.setAttribute('aria-labelledby', 'formpilot-draft-label');
-
-  dialog.innerHTML = `
-    <div style="font-weight: bold; color: #ae6a97; margin-bottom: 8px; font-size: 14px;" id="formpilot-draft-label">Question</div>
-    <textarea id="formpilot-draft-context" aria-label="Guidance for AI draft" style="width: 100%; height: 60px; border: 1px solid #eca8bb; border-radius: 4px; padding: 4px; font-size: 13px; margin-bottom: 8px; box-sizing: border-box;" placeholder="e.g. I was preparing for JEE exams, add this in formal tone in 2-3 lines"></textarea>
-    <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 8px; color: #333; cursor: pointer;">
-      <input type="checkbox" id="formpilot-draft-profile" checked style="margin-right: 4px;"> Include my profile/resume context
-    </label>
-    <div style="display: flex; justify-content: flex-end; gap: 8px;">
-      <button id="formpilot-draft-cancel" style="background: transparent; border: none; color: #666; cursor: pointer; font-size: 13px;">Cancel</button>
-      <button id="formpilot-draft-submit" style="background: #ae6a97; color: white; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 13px; font-weight: bold;">Draft with AI</button>
-    </div>
-  `;
-  document.body.appendChild(dialog);
-
-  document.getElementById('formpilot-draft-cancel').addEventListener('click', (e) => {
-    e.preventDefault();
-    closeDraftDialog(true);
-  });
-
-  document.addEventListener('keydown', (e) => {
-    const dlg = document.getElementById('formpilot-draft-dialog');
-    if (dlg && dlg.style.display === 'block' && e.key === 'Escape') {
-      e.stopPropagation();
-      closeDraftDialog(true);
-    }
-  });
-
-  document.addEventListener('pointerdown', (e) => {
-    const dlg = document.getElementById('formpilot-draft-dialog');
-    if (!dlg || dlg.style.display !== 'block') return;
-    if (dlg.contains(e.target)) return;
-    if (e.target.closest && e.target.closest('.formpilot-sparkle')) return;
-    closeDraftDialog(false);
-  });
-
-  document.getElementById('formpilot-draft-submit').addEventListener('click', async (e) => {
-    e.preventDefault();
-    const btn = e.target;
-    const context = document.getElementById('formpilot-draft-context').value;
-    const useProfile = document.getElementById('formpilot-draft-profile').checked;
-    const label = document.getElementById('formpilot-draft-label').textContent;
-
-    btn.textContent = 'Drafting...';
-    btn.disabled = true;
-
-    try {
-      const resp = await new Promise(resolve => {
-        chrome.runtime.sendMessage({
-          action: 'draft_answer',
-          questions: [label],
-          user_context: context,
-          use_profile: useProfile
-        }, resolve);
-      });
-
-      const draftedText = resp && resp.success && resp.drafts
-        ? (resp.drafts[label] ?? resp.drafts[Object.keys(resp.drafts).find(k => normalizeLabel(k) === normalizeLabel(label))])
-        : null;
-      if (draftedText) {
-        if (currentDraftField) {
-          const result = await fillField(currentDraftField, { value: draftedText, type: 'llm' });
-          if (result.status === FILL_OK) {
-            applyHighlight(currentDraftField.element, 'draft');
-            trackFieldCorrections(currentDraftField, draftedText);
-          }
-          dialog.style.display = 'none';
-          const doneField = currentDraftField;
-          for (const entry of sparkleRegistry) {
-            if (entry.field === doneField) {
-              entry.sparkle.dataset.fpDone = 'true';
-              entry.sparkle.style.display = 'none';
-            }
-          }
-          currentDraftField = null;
-          currentSparkleEl = null;
-        }
-      } else {
-        alert('FormPilot: Failed to draft answer.');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('FormPilot: Error drafting answer.');
-    } finally {
-      btn.textContent = 'Draft with AI';
-      btn.disabled = false;
-    }
-  });
-}
-
-function injectSparkleIcon(field, label) {
-  if (!field || !field.element) return;
-  if (isNativeDateInput(field)) return;
-  if (field.element.dataset.fpSparkle) return;
-  field.element.dataset.fpSparkle = 'true';
-
-  const anchor = getSparkleAnchor(field) || field.element;
-  if (!field.isCustomWidget && !CHOICE_KINDS.has(field.kind) && (anchor.tagName === 'INPUT' || anchor.tagName === 'TEXTAREA')) {
-    try {
-      const rect = anchor.getBoundingClientRect();
-      const cs = window.getComputedStyle(anchor);
-      if (rect.width > 80 && parseFloat(cs.paddingRight || '0') < 26) {
-        if (!anchor.dataset.fpOrigPad) anchor.dataset.fpOrigPad = cs.paddingRight || '';
-        anchor.style.paddingRight = '28px';
-      }
-    } catch (e) { /* non-fatal */ }
-  }
-
-  const sparkle = document.createElement('div');
-  sparkle.className = 'formpilot-sparkle';
-  sparkle.textContent = '✨';
-  sparkle.setAttribute('role', 'button');
-  sparkle.setAttribute('tabindex', '0');
-  sparkle.setAttribute('aria-label', `Draft with AI for: ${label}`);
-  sparkle.setAttribute('title', 'Draft with AI');
-  sparkle.fieldRef = field;
-
-  const entry = { sparkle, field, label, anchor };
-  sparkleRegistry.push(entry);
-
-  const open = (e) => {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    openDraftDialog(field, label, sparkle);
-  };
-  sparkle.addEventListener('click', open);
-  sparkle.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') open(e);
-  });
-
-  document.body.appendChild(sparkle);
-  positionSparkle(entry);
-}
-
-window.addEventListener('scroll', scheduleSparkleReposition, { capture: true, passive: true });
-window.addEventListener('resize', scheduleSparkleReposition);
 
 // ═══════════════════════════════════════
 // INIT
@@ -2414,11 +1891,6 @@ window.addEventListener('resize', scheduleSparkleReposition);
 (function init() {
   currentPlatform = detectPlatform();
   injectHighlightStyles();
-  createDraftDialog();
-
   collectFields();
-  chrome.runtime.sendMessage({ action: 'forms_detected', count: cachedFields.length }).catch(() => {});
-
-  domObserver.observe(document.body, { childList: true, subtree: true });
   checkForIframes();
 })();

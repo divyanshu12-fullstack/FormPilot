@@ -1,175 +1,105 @@
-// FormPilot Background Service Worker
-importScripts('shared/config.js');
+// FormPilot background handler. Firefox uses the scripts entry in the manifest;
+// Chromium browsers use the service_worker entry. Keep this file classic-script
+// compatible with both environments.
+if (typeof FormPilotStore === 'undefined' && typeof importScripts === 'function') {
+  importScripts('shared/storage.js');
+}
 
-// Helper for fetch with timeout
-async function fetchWithTimeout(urlPath, options = {}, timeoutMs = 10000) {
-  const apiBase = await getApiBase();
-  const url = `${apiBase}${urlPath}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+const FormPilotAPI = globalThis.browser || globalThis.chrome;
+const CONTENT_FILES = [
+  'shared/constants.js',
+  'shared/matching.js',
+  'shared/widgets.js',
+  'content_script.js'
+];
+
+async function injectContentScript(tabId) {
+  await FormPilotAPI.scripting.executeScript({
+    target: { tabId },
+    files: CONTENT_FILES
+  });
+}
+
+async function messageTab(tabId, message) {
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
-    }
-    return await response.json();
+    return await FormPilotAPI.tabs.sendMessage(tabId, message);
   } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      throw new Error(`Request timed out after ${timeoutMs / 1000}s`);
-    }
-    throw error;
+    // Content scripts are injected only after the user invokes FormPilot.
+    await injectContentScript(tabId);
+    return FormPilotAPI.tabs.sendMessage(tabId, message);
   }
 }
 
-// Per-tab state. A service worker can be torn down at any time, so this is
-// best-effort UI bookkeeping only — never a source of truth.
-const frameCounts = new Map();
-const frameReports = new Map();
+async function setTabBadge(tabId, text) {
+  try {
+    await FormPilotAPI.action.setBadgeText({ tabId, text: String(text || '').slice(0, 4) });
+  } catch (error) {
+    // Badge support is a convenience; it must not affect filling.
+  }
+}
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+async function runAutofill(tab) {
+  const [profile, allCorrections, preferences] = await Promise.all([
+    FormPilotStore.loadProfile(),
+    FormPilotStore.loadCorrections(),
+    FormPilotStore.loadPreferences()
+  ]);
+  let domain = '';
+  try { domain = new URL(tab.url || '').hostname.toLowerCase(); } catch (error) { /* unsupported page */ }
+  const corrections = allCorrections.filter(item => item.domain === domain);
+
+  const result = await messageTab(tab.id, {
+    action: 'autofill',
+    profile,
+    corrections,
+    preferences
+  });
+
+  if (!result || !result.success) {
+    await setTabBadge(tab.id, '!');
+    return;
+  }
+  await setTabBadge(tab.id, result.report && result.report.filled ? result.report.filled : '');
+}
+
+function correctionDomain(sender) {
+  try {
+    const url = new URL(sender.url || '');
+    return ['http:', 'https:'].includes(url.protocol) ? url.hostname.toLowerCase() : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || sender.id !== FormPilotAPI.runtime.id) return false;
+
   if (message.action === 'save_correction') {
-    fetchWithTimeout('/corrections', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        field_label: message.field_label,
-        corrected_value: message.corrected_value
-      })
-    }, 5000)
-    .then(data => {
-      sendResponse({ success: true, data });
-    })
-    .catch(err => {
-      console.error('[FormPilot Service Worker] Failed to save correction:', err);
-      sendResponse({ success: false, error: err.message });
-    });
-    return true; // Keep channel open for async response
-  }
-  
-  if (message.action === 'match_fields') {
-    // Option-aware payload: each entry carries its control kind and the option
-    // texts, so the LLM can pick an exact option instead of only a data key.
-    const payload = Array.isArray(message.unmatched_fields)
-      ? { fields: message.unmatched_fields }
-      : { unmatched_labels: message.unmatched_labels || [] };
-
-    fetchWithTimeout('/match-field', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }, 30000)
-    .then(data => {
-      sendResponse({ success: true, mappings: data.mappings });
-    })
-    .catch(err => {
-      console.error('[FormPilot Service Worker] Failed to match fields:', err);
-      sendResponse({ success: false, error: err.message });
-    });
-    return true;
-  }
-
-  if (message.action === 'draft_answer') {
-    fetchWithTimeout('/draft-answer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        questions: message.questions,
-        user_context: message.user_context,
-        use_profile: message.use_profile
-      })
-    }, 30000)
-    .then(data => {
-      sendResponse({ success: true, drafts: data.drafts });
-    })
-    .catch(err => {
-      console.error('[FormPilot Service Worker] Failed to draft answer:', err);
-      sendResponse({ success: false, error: err.message });
-    });
-    return true;
-  }
-
-  if (message.action === 'forms_detected') {
-    // Frames all report in; keep the badge on the highest count seen per tab.
-    if (sender.tab) {
-      if (typeof message.count === 'number') {
-        frameCounts.set(`${sender.tab.id}`, Math.max(frameCounts.get(sender.tab.id) || 0, message.count));
-      }
-      if (message.count > 0) {
-        fetchWithTimeout('/ping', {}, 2000)
-          .then(() => {
-            chrome.action.setBadgeText({ text: 'AI', tabId: sender.tab.id });
-            chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: sender.tab.id });
-          })
-          .catch(() => {
-            chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
-          });
-      } else {
-        chrome.action.setBadgeText({ text: '', tabId: sender.tab.id });
-      }
+    const domain = correctionDomain(sender);
+    const label = String(message.field_label || '').trim().slice(0, 200);
+    const value = String(message.corrected_value || '').slice(0, 5000);
+    if (!domain || !label || !value) {
+      sendResponse({ success: false, error: 'Correction is incomplete.' });
+      return false;
     }
-    sendResponse({ success: true });
-    return false;
-  }
 
-  if (message.action === 'autofill_done') {
-    // Aggregate per-frame reports so the badge reflects the whole tab.
-    if (sender.tab) {
-      const key = `${sender.tab.id}`;
-      const agg = frameReports.get(key) || { filled: 0, needsReview: 0, frames: 0 };
-      agg.filled += (message.report && message.report.filled) || 0;
-      agg.needsReview += (message.report && message.report.needsReview) || 0;
-      agg.frames++;
-      frameReports.set(key, agg);
-    }
-    sendResponse({ success: true });
-    return false;
+    FormPilotStore.saveCorrection({
+      domain,
+      field_label: label,
+      corrected_value: value,
+      field_kind: message.field_kind
+    }).then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 
   return false;
 });
 
-// --- Icon Click Handling ---
-let clickCount = 0;
-let clickTimer = null;
-
-chrome.action.onClicked.addListener((tab) => {
-  clickCount++;
-  
-  // Clear any existing timer on each new click
-  if (clickTimer) {
-    clearTimeout(clickTimer);
-  }
-  
-  clickTimer = setTimeout(() => {
-    const clicks = clickCount;
-    clickCount = 0;
-    clickTimer = null;
-    
-    if (clicks >= 2) {
-      // Double or multi-click
-      chrome.runtime.openOptionsPage();
-    } else {
-      // Single click — fetch profile, corrections, and resume concurrently
-      frameReports.delete(tab.id);
-      Promise.all([
-        fetchWithTimeout('/profile', {}, 5000),
-        fetchWithTimeout('/corrections', {}, 5000).catch(() => ({})),
-        fetchWithTimeout('/resume', {}, 5000).catch(() => ({}))
-      ])
-        .then(([profile, corrections, resume]) => {
-          // No frameId → delivered to every frame in the tab, so forms inside
-          // same-origin iframes get filled too.
-          chrome.tabs.sendMessage(tab.id, { action: 'autofill', profile: profile, corrections: corrections, resume: resume })
-            .catch(err => console.log('Could not send autofill to tab:', err));
-        })
-        .catch(err => {
-           console.error('Failed to fetch data for autofill:', err);
-           chrome.tabs.sendMessage(tab.id, { action: 'autofill_error', error: 'Could not fetch profile. Is the backend running?' })
-             .catch(() => {});
-        });
-    }
-  }, 300);
+FormPilotAPI.action.onClicked.addListener((tab) => {
+  if (!tab || typeof tab.id !== 'number') return;
+  runAutofill(tab).catch(async (error) => {
+    console.error('[FormPilot] Autofill could not start:', error.message);
+    await setTabBadge(tab.id, '!');
+  });
 });

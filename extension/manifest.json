@@ -2,26 +2,21 @@
   "manifest_version": 3,
   "name": "FormPilot",
   "version": "1.0.0",
-  "description": "Autofill job-application forms using stored profile data and AI assistance.",
+  "description": "Fill supported forms using your profile stored locally in the browser.",
   "permissions": [
     "storage",
-    "activeTab"
-  ],
-  "host_permissions": [
-    "http://127.0.0.1:8420/*"
+    "activeTab",
+    "scripting"
   ],
   "background": {
+    "scripts": ["shared/storage.js", "background.js"],
     "service_worker": "background.js"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["shared/constants.js", "shared/matching.js", "shared/widgets.js", "content_script.js"],
-      "run_at": "document_idle",
-      "all_frames": true,
-      "match_about_blank": true
+  "browser_specific_settings": {
+    "gecko": {
+      "strict_min_version": "121.0"
     }
-  ],
+  },
   "action": {},
   "options_ui": {
     "page": "options.html",

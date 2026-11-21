@@ -153,12 +153,6 @@ const BOOLEAN_FIELD_TYPES = new Set([
   FIELD_TYPES.DISABILITY_STATUS
 ]);
 
-const CONFIDENCE_COLORS = {
-  HIGH: '#2d8a4e',    // Heuristic match
-  MEDIUM: '#c4930a',  // LLM matched
-  DRAFT: '#2b6cb0'    // AI drafted long answer
-};
-
 // Enhancement 6: Field Signature Database (ATS-specific bypass)
 const FIELD_SIGNATURES = {
   // Greenhouse patterns
@@ -286,9 +280,7 @@ const ABBREVIATION_MAPS = {
 };
 
 // ── Consent / attestation detection ──
-// Checkboxes matching these are NEVER auto-ticked unless the user turns on
-// `allowConsentTicks` in Settings. Ticking legal attestation for someone is
-// their act, not ours.
+// Checkboxes matching these patterns are always left for the user.
 const CONSENT_LABEL_PATTERNS = [
   /\bi\s+agree\b/,
   /\bi\s+accept\b/,
@@ -668,7 +660,7 @@ const SKIP_SECTIONS = [
   'next of kin'
 ];
 
-// Fields that should NEVER be saved to corrections or sent to LLM
+// Fields that should never be saved as corrections or autofilled.
 const SENSITIVE_FIELD_KEYWORDS = [
   'password', 'passwd',
   'card number', 'card no', 'credit card', 'debit card',
@@ -678,6 +670,12 @@ const SENSITIVE_FIELD_KEYWORDS = [
   'security pin', 'secret', 'token',
   'otp', 'verification code',
   'aadhaar', 'aadhar', 'pan number', 'passport number'
+];
+
+// Optional demographic values require a separate, explicit user preference.
+const PROTECTED_DEMOGRAPHIC_KEYWORDS = [
+  'gender', 'sex', 'race', 'ethnicity', 'disability', 'veteran',
+  'marital status', 'religion', 'sexual orientation'
 ];
 
 // Section headings that turn a bare checkbox into an "I agree" consent box.

@@ -1,316 +1,22 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  // 0. Backend Health Check
-  const backendDot = document.getElementById('backend-dot');
-  const backendText = document.getElementById('backend-status-text');
-  
-  async function checkBackend() {
-    try {
-      const apiBase = await getApiBase();
-      const res = await fetch(`${apiBase}/ping`, { method: 'GET' });
-      if (res.ok) {
-        backendDot.className = 'status-dot online';
-        backendText.textContent = 'Backend: Connected';
-      } else {
-        throw new Error();
-      }
-    } catch {
-      backendDot.className = 'status-dot offline';
-      backendText.textContent = 'Backend: Offline';
-    }
+  async function getLocalStorage(defaults) {
+    if (globalThis.browser) return globalThis.browser.storage.local.get(defaults);
+    return new Promise(resolve => globalThis.chrome.storage.local.get(defaults, resolve));
   }
-  checkBackend();
-  setInterval(checkBackend, 10000);
 
-  // 1. Tab Switching Logic
-  const navBtns = document.querySelectorAll('.nav-btn');
-  const tabPanes = document.querySelectorAll('.tab-pane');
-
-  navBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      // Remove active from all
-      navBtns.forEach(b => b.classList.remove('active'));
-      tabPanes.forEach(p => p.classList.remove('active'));
-      
-      // Add active to clicked
-      btn.classList.add('active');
-      const targetId = btn.getAttribute('data-tab');
-      document.getElementById(targetId).classList.add('active');
-
-      if (targetId === 'tab-learned') {
-        loadLearnedData();
-      }
+  async function setLocalStorage(values) {
+    if (globalThis.browser) return globalThis.browser.storage.local.set(values);
+    return new Promise((resolve, reject) => {
+      globalThis.chrome.storage.local.set(values, () => {
+        const error = globalThis.chrome.runtime.lastError;
+        if (error) reject(new Error(error.message || 'Extension storage failed'));
+        else resolve();
+      });
     });
-  });
+  }
 
-  // 2. Profile Tab Logic
   const profileForm = document.getElementById('profile-form');
   const profileStatus = document.getElementById('profile-status');
-  
-  // Fetch profile
-  try {
-    const apiBase = await getApiBase();
-    const res = await fetch(`${apiBase}/profile`);
-    if (res.ok) {
-      const data = await res.json();
-      for (const [key, val] of Object.entries(data)) {
-        const el = profileForm.elements[key];
-        if (!el || val === null || val === undefined) continue;
-        // The API hands back real arrays for skills/languages; a <select> or
-        // <input> can only show them as text.
-        el.value = Array.isArray(val) ? val.join(', ') : val;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to load profile', e);
-  }
-
-  // Handle Unsaved changes indicator
-  const inputs = profileForm.querySelectorAll('input, select, textarea');
-  inputs.forEach(input => {
-    const markDirty = () => {
-      if (profileStatus.textContent !== 'Unsaved changes') {
-        profileStatus.textContent = 'Unsaved changes';
-        profileStatus.className = 'status-msg'; // default grey color
-      }
-    };
-    input.addEventListener('input', markDirty);
-    input.addEventListener('change', markDirty);
-  });
-
-  // Save profile
-  profileForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById('save-profile-btn');
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
-    profileStatus.textContent = '';
-    
-    const formData = new FormData(profileForm);
-    const data = Object.fromEntries(formData.entries());
-
-    // Coerce each field by its own input type, so the backend receives real
-    // numbers for number inputs and real lists for skills/languages.
-    for (const [key, raw] of Object.entries(data)) {
-      const el = profileForm.elements[key];
-      if (raw === '') { data[key] = null; continue; }
-      if (el && el.type === 'number') {
-        const n = Number(raw);
-        data[key] = Number.isFinite(n) ? n : null;
-      } else if (key === 'skills' || key === 'languages') {
-        data[key] = String(raw).split(',').map(s => s.trim()).filter(Boolean);
-      }
-    }
-
-    try {
-      const apiBase = await getApiBase();
-      const res = await fetch(`${apiBase}/profile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (res.ok) {
-        profileStatus.textContent = 'Saved successfully!';
-        profileStatus.className = 'status-msg success';
-        
-        // Morph button
-        const originalWidth = btn.offsetWidth;
-        btn.textContent = 'Saved ✓';
-        btn.classList.add('pulse-success');
-        btn.style.width = originalWidth + 'px'; // keep width stable during morph
-      } else {
-        throw new Error('Failed to save');
-      }
-    } catch (err) {
-      profileStatus.textContent = 'Error saving profile.';
-      profileStatus.className = 'status-msg error';
-    } finally {
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.textContent = 'Save Profile';
-        btn.classList.remove('pulse-success');
-        btn.style.width = ''; // reset width
-        if (profileStatus.textContent === 'Saved successfully!') {
-          profileStatus.textContent = '';
-        }
-      }, 2000);
-    }
-  });
-
-  // 3. Resume Tab Logic
-  const resumeFilename = document.getElementById('resume-filename');
-  const resumeSummary = document.getElementById('resume-summary');
-  const uploadBtn = document.getElementById('upload-resume-btn');
-  const fileInput = document.getElementById('resume-file');
-  const uploadStatus = document.getElementById('upload-status');
-  const dropZone = document.getElementById('drop-zone');
-  const selectedFilename = document.getElementById('selected-filename');
-
-  function updateResumeSummary(data) {
-    resumeFilename.innerHTML = 'Resume processed &mdash; ready to use <span style="color:#2e7d32">✓</span>';
-    
-    // Calculate summary from structured_json
-    if (data.structured_json) {
-      const exps = data.structured_json.experience ? data.structured_json.experience.length : 0;
-      const skills = data.structured_json.skills ? data.structured_json.skills.length : 0;
-      const edus = data.structured_json.education ? data.structured_json.education.length : 0;
-      resumeSummary.textContent = `Found ${exps} work experience${exps !== 1 ? 's' : ''}, ${skills} skill${skills !== 1 ? 's' : ''}, and ${edus} education entry${edus !== 1 ? 'ies' : ''}.`;
-    } else {
-      resumeSummary.textContent = '';
-    }
-  }
-
-  // Fetch current resume status
-  try {
-    const apiBase = await getApiBase();
-    const res = await fetch(`${apiBase}/resume`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && Object.keys(data).length > 0) {
-        updateResumeSummary(data);
-      } else {
-        resumeFilename.textContent = 'No resume data found.';
-        resumeSummary.textContent = 'Upload a resume below to get started.';
-      }
-    }
-  } catch (e) {
-    resumeFilename.textContent = 'Error connecting to backend';
-  }
-
-  // File Drag & Drop Handlers
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('dragover');
-  });
-  dropZone.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-  });
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('dragover');
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      fileInput.files = e.dataTransfer.files;
-      handleFileSelection();
-    }
-  });
-
-  fileInput.addEventListener('change', handleFileSelection);
-
-  function handleFileSelection() {
-    const file = fileInput.files[0];
-    if (file) {
-      selectedFilename.textContent = file.name;
-      uploadBtn.disabled = false;
-    } else {
-      selectedFilename.textContent = 'No file chosen';
-      uploadBtn.disabled = true;
-    }
-  }
-
-  // Upload new resume
-  uploadBtn.addEventListener('click', async () => {
-    const file = fileInput.files[0];
-    if (!file) return;
-    
-    uploadBtn.disabled = true;
-    uploadBtn.classList.add('loading');
-    uploadBtn.textContent = 'Processing...';
-    uploadStatus.textContent = 'Sending to AI for structuring (this takes a few seconds)...';
-    uploadStatus.className = 'status-msg';
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const apiBase = await getApiBase();
-      const res = await fetch(`${apiBase}/resume/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
-      if (res.ok && data.structured) {
-        uploadStatus.textContent = 'Resume successfully structured and saved!';
-        uploadStatus.className = 'status-msg success';
-        
-        // Refetch to get full structured_json for the summary
-        const res2 = await fetch(`${apiBase}/resume`);
-        const data2 = await res2.json();
-        updateResumeSummary(data2);
-      } else {
-        throw new Error('Structuring failed');
-      }
-    } catch (err) {
-      uploadStatus.textContent = 'Failed to process resume. Check backend logs.';
-      uploadStatus.className = 'status-msg error';
-    } finally {
-      uploadBtn.disabled = false;
-      uploadBtn.classList.remove('loading');
-      uploadBtn.textContent = 'Process Resume';
-    }
-  });
-
-  // 4. Preferences Tab Logic
-  const slider = document.getElementById('highlight-slider');
-  const sliderVal = document.getElementById('highlight-val');
-  const autoDraftToggle = document.getElementById('auto-draft-toggle');
-  const consentTicksToggle = document.getElementById('consent-ticks-toggle');
-  const themeToggle = document.getElementById('theme-toggle');
-  const apiUrlInput = document.getElementById('api-url-input');
-
-  // Load API URL
-  if (apiUrlInput) {
-    getApiBase().then(url => {
-      apiUrlInput.value = url;
-    });
-    apiUrlInput.addEventListener('change', (e) => {
-      setApiBase(e.target.value).then(cleanUrl => {
-        apiUrlInput.value = cleanUrl;
-        checkBackend();
-      });
-    });
-  }
-
-  // Load from chrome.storage
-  chrome.storage.local.get({ theme: 'system' }, (items) => {
-    let activeTheme = items.theme;
-    if (activeTheme === 'system') {
-      activeTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    themeToggle.checked = (activeTheme === 'dark');
-  });
-
-  chrome.storage.sync.get(
-    { highlightDuration: 3, autoDraftMode: false, allowConsentTicks: false },
-    (items) => {
-      slider.value = items.highlightDuration;
-      sliderVal.textContent = items.highlightDuration + 's';
-      autoDraftToggle.checked = items.autoDraftMode;
-      consentTicksToggle.checked = !!items.allowConsentTicks;
-    }
-  );
-
-  // Save on change
-  themeToggle.addEventListener('change', (e) => {
-    const newTheme = e.target.checked ? 'dark' : 'light';
-    chrome.storage.local.set({ theme: newTheme });
-    document.documentElement.setAttribute('data-theme', newTheme);
-  });
-
-  slider.addEventListener('input', (e) => {
-    const val = e.target.value;
-    sliderVal.textContent = val + 's';
-    chrome.storage.sync.set({ highlightDuration: parseInt(val, 10) });
-  });
-
-  autoDraftToggle.addEventListener('change', (e) => {
-    chrome.storage.sync.set({ autoDraftMode: e.target.checked });
-  });
-
-  consentTicksToggle.addEventListener('change', (e) => {
-    chrome.storage.sync.set({ allowConsentTicks: e.target.checked });
-  });
-
-  // 5. Learned Data Tab Logic
   const learnedBadge = document.getElementById('learned-count-badge');
   const learnedSearch = document.getElementById('learned-search-input');
   const learnedTable = document.getElementById('learned-table');
@@ -318,208 +24,294 @@ document.addEventListener('DOMContentLoaded', async () => {
   const learnedEmptyState = document.getElementById('learned-empty-state');
   const learnedStatus = document.getElementById('learned-status-msg');
   const clearAllLearnedBtn = document.getElementById('clear-all-learned-btn');
+  const dataStatus = document.getElementById('data-status-msg');
 
-  let learnedDataStore = {};
+  function showStatus(element, message, type = '') {
+    if (!element) return;
+    element.textContent = message;
+    element.className = `status-msg ${type}`.trim();
+  }
+
+  function setTheme(theme) {
+    const resolved = theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : theme;
+    document.documentElement.setAttribute('data-theme', resolved);
+  }
+
+  async function loadProfile() {
+    const profile = await FormPilotStore.loadProfile();
+    for (const [key, value] of Object.entries(profile)) {
+      const field = profileForm.elements.namedItem(key);
+      if (!field || value === null || value === undefined) continue;
+      field.value = Array.isArray(value) ? value.join(', ') : String(value);
+    }
+  }
+
+  try {
+    await loadProfile();
+  } catch (error) {
+    showStatus(profileStatus, 'Could not load profile data.', 'error');
+  }
+
+  // Navigation
+  const navButtons = Array.from(document.querySelectorAll('.nav-btn'));
+  const panes = Array.from(document.querySelectorAll('.tab-pane'));
+  navButtons.forEach(button => button.addEventListener('click', () => {
+    navButtons.forEach(item => item.classList.toggle('active', item === button));
+    panes.forEach(pane => pane.classList.toggle('active', pane.id === button.dataset.tab));
+    if (button.dataset.tab === 'tab-learned') loadLearnedData();
+  }));
+
+  // Profile persistence
+  profileForm.addEventListener('input', () => showStatus(profileStatus, 'Unsaved changes'));
+  profileForm.addEventListener('change', () => showStatus(profileStatus, 'Unsaved changes'));
+  profileForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = document.getElementById('save-profile-btn');
+    button.disabled = true;
+    button.textContent = 'Saving…';
+
+    const values = Object.fromEntries(new FormData(profileForm).entries());
+    for (const [key, raw] of Object.entries(values)) {
+      const field = profileForm.elements.namedItem(key);
+      if (raw === '') {
+        values[key] = null;
+      } else if (field && field.type === 'number') {
+        const number = Number(raw);
+        values[key] = Number.isFinite(number) ? number : null;
+      } else if (key === 'skills' || key === 'languages') {
+        values[key] = String(raw).split(/[,;\n|]/).map(item => item.trim()).filter(Boolean);
+      }
+    }
+
+    try {
+      await FormPilotStore.saveProfile(values);
+      showStatus(profileStatus, 'Profile saved in this browser.', 'success');
+    } catch (error) {
+      showStatus(profileStatus, 'Could not save profile.', 'error');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Save Profile';
+    }
+  });
+
+  // Local appearance and autofill preferences
+  const themeToggle = document.getElementById('theme-toggle');
+  const highlightSlider = document.getElementById('highlight-slider');
+  const highlightValue = document.getElementById('highlight-val');
+  const demographicToggle = document.getElementById('demographic-autofill-toggle');
+
+  try {
+    const [stored, preferences] = await Promise.all([
+      getLocalStorage({ theme: 'system' }),
+      FormPilotStore.loadPreferences()
+    ]);
+    setTheme(stored.theme);
+    themeToggle.checked = stored.theme === 'dark';
+    const duration = Number(preferences.highlightDuration ?? 3);
+    highlightSlider.value = Number.isFinite(duration) ? Math.max(1, Math.min(10, duration)) : 3;
+    highlightValue.textContent = `${highlightSlider.value}s`;
+    demographicToggle.checked = preferences.allowProtectedDemographicAutofill === true;
+  } catch (error) {
+    setTheme('light');
+  }
+
+  themeToggle.addEventListener('change', async event => {
+    const theme = event.target.checked ? 'dark' : 'light';
+    await setLocalStorage({ theme });
+    setTheme(theme);
+  });
+
+  async function savePreferences() {
+    const current = await FormPilotStore.loadPreferences();
+    await FormPilotStore.savePreferences({
+      ...current,
+      highlightDuration: Number(highlightSlider.value),
+      allowProtectedDemographicAutofill: demographicToggle.checked
+    });
+  }
+
+  highlightSlider.addEventListener('input', () => {
+    highlightValue.textContent = `${highlightSlider.value}s`;
+  });
+  highlightSlider.addEventListener('change', () => savePreferences().catch(() => {}));
+  demographicToggle.addEventListener('change', () => savePreferences().catch(() => {}));
+
+  // Locally stored learned corrections
+  let learnedData = [];
 
   async function loadLearnedData() {
     try {
-      const apiBase = await getApiBase();
-      const res = await fetch(`${apiBase}/corrections`);
-      if (res.ok) {
-        learnedDataStore = await res.json();
-        renderLearnedTable();
-      } else {
-        throw new Error('Failed to load corrections');
-      }
-    } catch (err) {
-      console.error('Error loading learned data:', err);
-      learnedBadge.textContent = 'Error loading';
-      learnedStatus.textContent = 'Could not load learned data. Is the backend running?';
-      learnedStatus.className = 'status-msg error';
+      learnedData = await FormPilotStore.loadCorrections();
+      renderLearnedTable();
+      showStatus(learnedStatus, '');
+    } catch (error) {
+      showStatus(learnedStatus, 'Could not load learned data.', 'error');
     }
   }
 
   function renderLearnedTable() {
-    const filter = (learnedSearch?.value || '').toLowerCase().trim();
-    const entries = Object.entries(learnedDataStore).filter(([label, val]) => {
-      if (!filter) return true;
-      return label.toLowerCase().includes(filter) || String(val).toLowerCase().includes(filter);
-    });
+    const filter = (learnedSearch.value || '').trim().toLowerCase();
+    const entries = learnedData.filter(item => !filter
+      || item.domain.toLowerCase().includes(filter)
+      || item.field_label.toLowerCase().includes(filter)
+      || item.corrected_value.toLowerCase().includes(filter));
 
-    const totalCount = Object.keys(learnedDataStore).length;
-    learnedBadge.textContent = `${totalCount} learned field${totalCount !== 1 ? 's' : ''}`;
+    learnedBadge.textContent = `${learnedData.length} learned field${learnedData.length === 1 ? '' : 's'}`;
+    learnedBody.replaceChildren();
+    learnedTable.style.display = learnedData.length ? 'table' : 'none';
+    learnedEmptyState.style.display = learnedData.length ? 'none' : 'block';
+    clearAllLearnedBtn.style.display = learnedData.length ? 'inline-block' : 'none';
 
-    if (totalCount === 0) {
-      learnedTable.style.display = 'none';
-      learnedEmptyState.style.display = 'block';
-      if (clearAllLearnedBtn) clearAllLearnedBtn.style.display = 'none';
+    if (!learnedData.length) return;
+    if (!entries.length) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 4;
+      cell.className = 'no-matches-cell';
+      cell.textContent = `No fields match “${filter}”.`;
+      row.appendChild(cell);
+      learnedBody.appendChild(row);
       return;
     }
 
-    learnedTable.style.display = 'table';
-    learnedEmptyState.style.display = 'none';
-    if (clearAllLearnedBtn) clearAllLearnedBtn.style.display = 'inline-block';
+    for (const item of entries) {
+      const row = document.createElement('tr');
+      row.appendChild(textCell(item.domain));
+      row.appendChild(textCell(item.field_label));
 
-    learnedBody.innerHTML = '';
+      const valueCell = document.createElement('td');
+      valueCell.className = 'value-container';
+      valueCell.textContent = item.corrected_value;
+      row.appendChild(valueCell);
 
-    if (entries.length === 0) {
-      const emptyRow = document.createElement('tr');
-      emptyRow.innerHTML = `<td colspan="3" style="text-align: center; color: var(--text-muted); padding: 24px;">No fields match "${filter}"</td>`;
-      learnedBody.appendChild(emptyRow);
+      const actionCell = document.createElement('td');
+      actionCell.className = 'actions-cell';
+      const actions = document.createElement('div');
+      actions.className = 'action-group';
+      const editButton = document.createElement('button');
+      editButton.type = 'button';
+      editButton.className = 'btn-icon edit-btn';
+      editButton.textContent = 'Edit';
+      editButton.addEventListener('click', () => editCorrection(item, valueCell, editButton));
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'btn-icon delete-btn';
+      deleteButton.textContent = 'Delete';
+      deleteButton.addEventListener('click', () => deleteCorrection(item));
+      actions.append(editButton, deleteButton);
+      actionCell.appendChild(actions);
+      row.appendChild(actionCell);
+      learnedBody.appendChild(row);
+    }
+  }
+
+  function textCell(text) {
+    const cell = document.createElement('td');
+    cell.textContent = text;
+    return cell;
+  }
+
+  function editCorrection(item, cell, button) {
+    if (button.dataset.editing === 'true') {
+      const input = cell.querySelector('input');
+      const updatedValue = input ? input.value.trim() : '';
+      if (!updatedValue) return;
+      FormPilotStore.updateCorrection(item.domain, item.field_label, updatedValue)
+        .then(loadLearnedData)
+        .then(() => showStatus(learnedStatus, 'Correction updated.', 'success'))
+        .catch(() => showStatus(learnedStatus, 'Could not update correction.', 'error'));
       return;
     }
 
-    entries.forEach(([label, value]) => {
-      const tr = document.createElement('tr');
-      tr.dataset.label = label;
-
-      tr.innerHTML = `
-        <td><span class="field-label-cell">${escapeHtml(label)}</span></td>
-        <td class="value-container">
-          <span class="field-value-cell">${escapeHtml(value || '(empty)')}</span>
-        </td>
-        <td style="text-align: right;">
-          <div class="action-group">
-            <button class="btn-icon edit-btn" title="Edit this value">✏️ Edit</button>
-            <button class="btn-icon delete-btn" title="Delete this learned field">🗑️ Delete</button>
-          </div>
-        </td>
-      `;
-
-      const editBtn = tr.querySelector('.edit-btn');
-      const deleteBtn = tr.querySelector('.delete-btn');
-      const valueContainer = tr.querySelector('.value-container');
-
-      editBtn.addEventListener('click', () => {
-        if (editBtn.classList.contains('save-btn')) {
-          // Save action
-          const input = valueContainer.querySelector('input');
-          if (input) {
-            saveSingleCorrection(label, input.value.trim(), tr);
-          }
-        } else {
-          // Enter Edit mode
-          const currentVal = learnedDataStore[label] || '';
-          valueContainer.innerHTML = `<input type="text" class="field-value-input" value="${escapeHtml(currentVal)}">`;
-          const input = valueContainer.querySelector('input');
-          input.focus();
-          input.select();
-
-          editBtn.textContent = '💾 Save';
-          editBtn.classList.add('save-btn');
-
-          input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              saveSingleCorrection(label, input.value.trim(), tr);
-            } else if (e.key === 'Escape') {
-              renderLearnedTable();
-            }
-          });
-        }
-      });
-
-      deleteBtn.addEventListener('click', async () => {
-        if (confirm(`Are you sure you want to delete the learned value for "${label}"?`)) {
-          deleteSingleCorrection(label, tr);
-        }
-      });
-
-      learnedBody.appendChild(tr);
-    });
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'field-value-input';
+    input.value = item.corrected_value;
+    cell.replaceChildren(input);
+    input.focus();
+    input.select();
+    button.textContent = 'Save';
+    button.dataset.editing = 'true';
   }
 
-  async function saveSingleCorrection(label, newValue, rowEl) {
+  async function deleteCorrection(item) {
+    if (!confirm(`Delete the learned value for “${item.field_label}” on ${item.domain}?`)) return;
     try {
-      const apiBase = await getApiBase();
-      const res = await fetch(`${apiBase}/corrections`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ field_label: label, corrected_value: newValue })
-      });
-      if (res.ok) {
-        learnedDataStore[label] = newValue;
-        showLearnedStatus(`Updated "${label}"`, 'success');
-        renderLearnedTable();
-      } else {
-        throw new Error('Update failed');
-      }
-    } catch (err) {
-      showLearnedStatus(`Failed to update "${label}"`, 'error');
+      await FormPilotStore.deleteCorrection(item.domain, item.field_label);
+      await loadLearnedData();
+      showStatus(learnedStatus, 'Correction deleted.', 'success');
+    } catch (error) {
+      showStatus(learnedStatus, 'Could not delete correction.', 'error');
     }
   }
 
-  async function deleteSingleCorrection(label, rowEl) {
+  learnedSearch.addEventListener('input', renderLearnedTable);
+  clearAllLearnedBtn.addEventListener('click', async () => {
+    if (!learnedData.length || !confirm(`Delete all ${learnedData.length} learned fields?`)) return;
     try {
-      const apiBase = await getApiBase();
-      const res = await fetch(`${apiBase}/corrections/${encodeURIComponent(label)}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        delete learnedDataStore[label];
-        showLearnedStatus(`Deleted "${label}"`, 'success');
-        renderLearnedTable();
-      } else {
-        throw new Error('Delete failed');
-      }
-    } catch (err) {
-      showLearnedStatus(`Failed to delete "${label}"`, 'error');
+      await FormPilotStore.clearCorrections();
+      await loadLearnedData();
+      showStatus(learnedStatus, 'All learned data deleted.', 'success');
+    } catch (error) {
+      showStatus(learnedStatus, 'Could not delete learned data.', 'error');
     }
-  }
+  });
 
-  if (clearAllLearnedBtn) {
-    clearAllLearnedBtn.addEventListener('click', async () => {
-      const count = Object.keys(learnedDataStore).length;
-      if (count === 0) return;
-      if (confirm(`Are you sure you want to delete ALL ${count} learned field entries? This cannot be undone.`)) {
-        try {
-          const apiBase = await getApiBase();
-          const res = await fetch(`${apiBase}/corrections`, { method: 'DELETE' });
-          if (res.ok) {
-            learnedDataStore = {};
-            showLearnedStatus('All learned data cleared', 'success');
-            renderLearnedTable();
-          } else {
-            throw new Error('Clear failed');
-          }
-        } catch (err) {
-          showLearnedStatus('Failed to clear learned data', 'error');
-        }
-      }
-    });
-  }
+  // Explicit local data export/import and deletion
+  document.getElementById('export-data-btn').addEventListener('click', async () => {
+    try {
+      const data = await FormPilotStore.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `formpilot-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showStatus(dataStatus, 'Backup exported.', 'success');
+    } catch (error) {
+      showStatus(dataStatus, 'Could not export data.', 'error');
+    }
+  });
 
-  if (learnedSearch) {
-    learnedSearch.addEventListener('input', () => {
-      renderLearnedTable();
-    });
-  }
+  document.getElementById('import-data-input').addEventListener('change', async event => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      showStatus(dataStatus, 'Backup file is too large.', 'error');
+      return;
+    }
+    if (!confirm('Importing this backup replaces the profile and learned corrections in this browser. Continue?')) return;
+    try {
+      await FormPilotStore.importData(JSON.parse(await file.text()));
+      profileForm.reset();
+      await loadProfile();
+      await loadLearnedData();
+      showStatus(dataStatus, 'Backup imported.', 'success');
+    } catch (error) {
+      showStatus(dataStatus, 'This file could not be imported as a FormPilot backup.', 'error');
+    }
+  });
 
-  function showLearnedStatus(msg, type = 'info') {
-    if (!learnedStatus) return;
-    learnedStatus.textContent = msg;
-    learnedStatus.className = `status-msg ${type}`;
-    setTimeout(() => {
-      if (learnedStatus.textContent === msg) {
-        learnedStatus.textContent = '';
-      }
-    }, 3000);
-  }
+  document.getElementById('delete-data-btn').addEventListener('click', async () => {
+    if (!confirm('Delete the profile and all learned corrections from this browser? This cannot be undone.')) return;
+    try {
+      await FormPilotStore.clearUserData();
+      profileForm.reset();
+      await loadLearnedData();
+      showStatus(dataStatus, 'Profile and learned data deleted.', 'success');
+    } catch (error) {
+      showStatus(dataStatus, 'Could not delete local data.', 'error');
+    }
+  });
 
-  function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  // Load learned data on initial page load if tab is active
-  const activeTab = document.querySelector('.nav-btn.active');
-  if (activeTab && activeTab.getAttribute('data-tab') === 'tab-learned') {
+  // Display data immediately if the learned-data tab is selected on load.
+  if (document.querySelector('.nav-btn.active')?.dataset.tab === 'tab-learned') {
     loadLearnedData();
   }
-
 });
-

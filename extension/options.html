@@ -4,9 +4,7 @@
   <meta charset="UTF-8">
   <title>FormPilot Settings</title>
   <script src="theme.js"></script>
-  <script src="shared/config.js"></script>
   <link rel="stylesheet" href="options.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-container">
@@ -19,10 +17,6 @@
         <button class="nav-btn active" data-tab="tab-profile">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
           Profile
-        </button>
-        <button class="nav-btn" data-tab="tab-resume">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          Resume
         </button>
         <button class="nav-btn" data-tab="tab-learned">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -38,8 +32,7 @@
         </button>
       </nav>
       <div class="sidebar-footer">
-        <div class="status-dot online" id="backend-dot"></div>
-        <span id="backend-status-text">Backend: Checking...</span>
+        <span>Profile stored in this browser</span>
       </div>
     </aside>
 
@@ -189,40 +182,11 @@
         </div>
       </section>
 
-      <!-- Resume Tab -->
-      <section id="tab-resume" class="tab-pane">
-        <header class="tab-header">
-          <h2>Resume Import</h2>
-          <p>Upload a PDF/DOCX to generate dynamic answers via AI.</p>
-        </header>
-        <div class="content-card">
-          <div class="resume-status" id="resume-status-box">
-            <h3>Current Resume</h3>
-            <p id="resume-filename">Loading...</p>
-            <p class="resume-summary" id="resume-summary"></p>
-          </div>
-          
-          <div class="upload-area" id="drop-zone">
-            <h3>Upload New Resume</h3>
-            <p class="help-text">Extracts work history, education, skills, and projects dynamically.</p>
-            
-            <label class="custom-file-upload">
-              Choose File
-              <input type="file" id="resume-file" accept=".pdf,.docx">
-            </label>
-            <span id="selected-filename">No file chosen</span>
-            
-            <button class="primary-btn" id="upload-resume-btn" disabled style="display:block; margin: 0 auto;">Process Resume</button>
-            <p id="upload-status" class="status-msg" style="margin-top: 12px;"></p>
-          </div>
-        </div>
-      </section>
-
       <!-- Learned Data Tab -->
       <section id="tab-learned" class="tab-pane">
         <header class="tab-header">
           <h2>Learned Data</h2>
-          <p>Fields FormPilot has learned from your manual corrections on forms. These take top priority over Profile and Resume data during autofill.</p>
+          <p>Corrections are stored locally and used only for the same site and matching field label.</p>
         </header>
         <div class="content-card">
           <div class="table-toolbar">
@@ -238,9 +202,10 @@
             <table class="data-table" id="learned-table">
               <thead>
                 <tr>
-                  <th style="width: 35%;">Form Field Label</th>
-                  <th style="width: 45%;">Learned Value</th>
-                  <th style="width: 20%; text-align: right;">Actions</th>
+                  <th style="width: 22%;">Site</th>
+                  <th style="width: 25%;">Form Field Label</th>
+                  <th style="width: 35%;">Learned Value</th>
+                  <th style="width: 18%; text-align: right;">Actions</th>
                 </tr>
               </thead>
               <tbody id="learned-table-body">
@@ -251,7 +216,7 @@
             <div id="learned-empty-state" class="empty-state" style="display: none;">
               <div class="empty-icon">🧠</div>
               <h3>No Learned Data Yet</h3>
-              <p>When you manually edit an autofilled field on any web page, FormPilot will learn your correction and save it here automatically.</p>
+              <p>When you correct an autofilled value or complete a supported field yourself, FormPilot can remember it for that site. You can review and delete learned values here.</p>
             </div>
           </div>
 
@@ -284,20 +249,8 @@
 
           <div class="pref-group">
             <div class="pref-info">
-              <h3>Backend API URL</h3>
-              <p>URL for the local FastAPI server backend.</p>
-            </div>
-            <div class="pref-control">
-              <input type="url" id="api-url-input" placeholder="http://127.0.0.1:8420" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); font-size: 13px; width: 200px;">
-            </div>
-          </div>
-
-          <hr class="divider">
-
-          <div class="pref-group">
-            <div class="pref-info">
               <h3>Highlight Duration</h3>
-              <p>How long should the green/plum borders remain on filled fields?</p>
+              <p>How long should the outline remain on filled fields?</p>
             </div>
             <div class="pref-control">
               <input type="range" id="highlight-slider" min="1" max="10" step="1" value="3">
@@ -305,32 +258,32 @@
             </div>
           </div>
 
-          <hr class="divider">
-
           <div class="pref-group">
             <div class="pref-info">
-              <h3>Auto-Draft Mode (Speed Mode)</h3>
-              <p>Skip the ✨ Sparkle icon. Automatically send all unanswered conversational fields to the LLM to draft answers in the background.</p>
-              <p style="color:var(--primary-color); font-weight: 500; font-size: 12px; margin-top: 4px;">(Note: Uses more OpenRouter calls per form)</p>
+              <h3>Allow demographic fields</h3>
+              <p>When enabled, explicitly saved demographic values such as gender may be filled. Disabled by default.</p>
             </div>
             <div class="pref-control toggle-switch">
-              <input type="checkbox" id="auto-draft-toggle">
-              <label for="auto-draft-toggle" class="slider-round"></label>
+              <input type="checkbox" id="demographic-autofill-toggle">
+              <label for="demographic-autofill-toggle" class="slider-round"></label>
             </div>
           </div>
 
           <hr class="divider">
 
-          <div class="pref-group">
+          <div class="pref-group data-controls">
             <div class="pref-info">
-              <h3>Tick Consent Checkboxes Automatically</h3>
-              <p>Ticks boxes like "I agree to the terms" or "I hereby declare…" for you. Leave this <strong>off</strong> if you would rather review legal attestation yourself — FormPilot will count them and leave them for you instead.</p>
+              <h3>Profile data</h3>
+              <p>Profile and corrections stay in this browser. Export a backup or delete them from this browser.</p>
             </div>
-            <div class="pref-control toggle-switch">
-              <input type="checkbox" id="consent-ticks-toggle">
-              <label for="consent-ticks-toggle" class="slider-round"></label>
+            <div class="pref-control data-buttons">
+              <button type="button" class="secondary-btn" id="export-data-btn">Export data</button>
+              <label class="secondary-btn import-label" for="import-data-input">Import data</label>
+              <input type="file" id="import-data-input" accept="application/json,.json" hidden>
+              <button type="button" class="danger-btn" id="delete-data-btn">Delete all data</button>
             </div>
           </div>
+          <p id="data-status-msg" class="status-msg" role="status"></p>
           
         </div>
       </section>
@@ -346,14 +299,14 @@
           <p style="margin-bottom: 16px;">As a final-year student, I was frustrated by the sheer volume of repetitive placement and hackathon forms I had to fill out manually on my laptop. Why couldn't PC browsers have a native, seamless autofill like mobile? I built FormPilot to solve this.</p>
           
           <h3 style="color: var(--text-main); margin-bottom: 8px;">Privacy &amp; Speed First</h3>
-          <p style="margin-bottom: 16px;">Your data is yours. FormPilot uses a local SQLite database and Python-based parsing (<code>pdfplumber</code> &amp; <code>python-docx</code>) to process your resume securely on your own machine. The ultra-lightweight, vanilla HTML/JS frontend ensures instantaneous load times and zero bloat.</p>
+          <p style="margin-bottom: 16px;">Your profile and corrections are stored in this browser. FormPilot does not need an account, server, or internet connection to autofill supported fields.</p>
 
-          <h3 style="color: var(--text-main); margin-bottom: 8px;">The 3-Phase Interactive Fill</h3>
-          <p style="margin-bottom: 16px;">Instead of sending every ambiguous question to an LLM (which wastes tokens and causes hallucinations), FormPilot uses a smart cascade:</p>
+          <h3 style="color: var(--text-main); margin-bottom: 8px;">How autofill works</h3>
+          <p style="margin-bottom: 16px;">FormPilot fills fields only when a supported local rule clearly matches a value in your profile. Ambiguous fields and legal agreements are left for you.</p>
           <ul style="margin-bottom: 16px; padding-left: 20px;">
-            <li style="margin-bottom: 6px;"><strong>1. Zero-Latency Static Fill:</strong> Deterministic fields are filled instantly in &lt;5ms.</li>
-            <li style="margin-bottom: 6px;"><strong>2. Inline AI Assist (✨):</strong> A subtle Sparkle icon lets you selectively guide the AI on complex, conversational questions.</li>
-            <li><strong>3. The Learning Loop:</strong> If you manually correct a field (like a unique Registration Number), FormPilot saves it and automatically fills it next time. No LLM required.</li>
+            <li style="margin-bottom: 6px;"><strong>1. You start each fill:</strong> FormPilot does not submit forms.</li>
+            <li style="margin-bottom: 6px;"><strong>2. Existing answers are preserved:</strong> FormPilot does not overwrite values you have entered.</li>
+            <li><strong>3. Corrections stay on this device:</strong> Learned values are scoped to the site and can be removed in Settings.</li>
           </ul>
 
           <p style="margin-top: 24px; font-style: italic; border-top: 1px solid var(--border-color); padding-top: 16px;">Built to help you fly through forms, so you can focus on what actually matters.</p>
@@ -362,6 +315,7 @@
 
     </main>
   </div>
+  <script src="shared/storage.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

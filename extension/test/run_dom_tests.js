@@ -1,5 +1,5 @@
-// Minimal Chrome DevTools Protocol driver — no npm dependencies.
-// Node 18+ ships a global WebSocket, which is all we need to talk to Chrome.
+// Minimal Edge DevTools Protocol driver — no npm dependencies.
+// Node 18+ ships a global WebSocket, which is all we need to talk to Edge.
 //
 //   node run_dom_tests.js <url> [timeoutMs]
 //
@@ -11,16 +11,15 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
-const CHROME = process.env.CHROME_PATH
+const EDGE = process.env.EDGE_PATH
   || [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/usr/bin/microsoft-edge',
   ].find(p => { try { return fs.existsSync(p); } catch { return false; } });
 
-if (!CHROME) { console.error('No Chrome binary found. Set CHROME_PATH.'); process.exit(2); }
+if (!EDGE) { console.error('No Edge binary found. Set EDGE_PATH.'); process.exit(2); }
 
 const url = process.argv[2];
 const timeoutMs = Number(process.argv[3] || 60000);
@@ -29,7 +28,7 @@ const profileDir = path.join(os.tmpdir(), 'formpilot-cdp-' + process.pid);
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const chrome = spawn(CHROME, [
+const edge = spawn(EDGE, [
   '--headless=new',
   '--disable-gpu',
   '--no-sandbox',
@@ -43,7 +42,7 @@ const chrome = spawn(CHROME, [
 ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
 let stderr = '';
-chrome.stderr.on('data', d => { stderr += d.toString(); });
+edge.stderr.on('data', d => { stderr += d.toString(); });
 
 async function fetchJson(url, tries = 40) {
   for (let i = 0; i < tries; i++) {
@@ -57,7 +56,7 @@ async function fetchJson(url, tries = 40) {
 }
 
 function cleanup() {
-  try { chrome.kill('SIGKILL'); } catch (e) { /* ignore */ }
+  try { edge.kill('SIGKILL'); } catch (e) { /* ignore */ }
   try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
 }
 

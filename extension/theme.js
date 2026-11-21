@@ -8,11 +8,13 @@
     }
   }
 
-  // Attempt to read from chrome.storage.local immediately
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get({ theme: 'system' }, (items) => {
-      applyTheme(items.theme);
-    });
+  // Read from browser-local extension storage in Firefox and Chromium browsers.
+  if (globalThis.browser && globalThis.browser.storage) {
+    globalThis.browser.storage.local.get({ theme: 'system' })
+      .then(items => applyTheme(items.theme))
+      .catch(() => applyTheme('system'));
+  } else if (globalThis.chrome && globalThis.chrome.storage) {
+    globalThis.chrome.storage.local.get({ theme: 'system' }, items => applyTheme(items.theme));
   } else {
     applyTheme('system');
   }
