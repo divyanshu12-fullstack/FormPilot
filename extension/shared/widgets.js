@@ -376,7 +376,7 @@ function readPopupOptions(popup) {
     out.push({
       el,
       text,
-      value: el.getAttribute('data-value') || el.getAttribute('value') || el.id || text,
+      value: el.getAttribute('data-value') || el.getAttribute('data-date') || el.getAttribute('value') || el.id || text,
       disabled: el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true',
       selected: el.getAttribute('aria-selected') === 'true' || el.hasAttribute('selected')
     });

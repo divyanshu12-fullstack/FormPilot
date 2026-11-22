@@ -104,37 +104,37 @@ const NATIVE_DATE_INPUT_TYPES = new Set(['date', 'datetime-local', 'month', 'tim
 const FIELD_KEYWORDS = {
   [FIELD_TYPES.FIRST_NAME]: ['first name', 'given name', 'fname', 'forename'],
   [FIELD_TYPES.LAST_NAME]: ['last name', 'family name', 'surname', 'lname', 'sur name'],
-  [FIELD_TYPES.FULL_NAME]: ['full name', 'your name', 'applicant name', 'candidate name', 'name', 'applicant full name'],
+  [FIELD_TYPES.FULL_NAME]: ['full name', 'your name', 'applicant name', 'candidate name', 'applicant full name'],
   [FIELD_TYPES.EMAIL]: ['email', 'e-mail', 'email address', 'email id', 'e mail', 'mail', 'contact email'],
-  [FIELD_TYPES.PHONE]: ['phone', 'mobile', 'telephone', 'cell', 'tel', 'mob', 'phone number', 'contact number', 'contact'],
+  [FIELD_TYPES.PHONE]: ['phone number', 'mobile number', 'telephone number', 'contact number', 'phone', 'mobile', 'telephone'],
   [FIELD_TYPES.DOB]: ['date of birth', 'birth date', 'birthday', 'dob', 'born on'],
-  [FIELD_TYPES.ADDRESS_LINE1]: ['address', 'street', 'street address', 'address line 1', 'line 1', 'address line 2', 'line 2', 'address 2', 'address line'],
+  [FIELD_TYPES.ADDRESS_LINE1]: ['street address', 'address line 1', 'address line one'],
   [FIELD_TYPES.CITY]: ['city', 'town', 'city town'],
   [FIELD_TYPES.STATE]: ['state', 'province', 'region', 'county', 'state province'],
   [FIELD_TYPES.PINCODE]: ['zip', 'postal', 'pincode', 'zip code', 'zipcode', 'pin code', 'pin', 'postal code'],
-  [FIELD_TYPES.COUNTRY]: ['country', 'nation', 'nationality'],
+  [FIELD_TYPES.COUNTRY]: ['country'],
   [FIELD_TYPES.PREFERRED_LOCATION]: ['preferred location', 'preferred city', 'location preference', 'work location', 'job location', 'preferred work location', 'location of interest', 'based in'],
   [FIELD_TYPES.LINKEDIN_URL]: ['linkedin', 'linked in', 'linkedin profile', 'linkedin url'],
   [FIELD_TYPES.GITHUB_URL]: ['github', 'git hub', 'github url'],
   [FIELD_TYPES.PORTFOLIO_URL]: ['portfolio', 'personal website', 'portfolio url', 'portfolio link', 'website', 'personal site'],
-  [FIELD_TYPES.CURRENT_TITLE]: ['current title', 'job title', 'designation', 'role', 'position', 'title'],
-  [FIELD_TYPES.CURRENT_COMPANY]: ['company', 'current company', 'employer', 'organisation', 'organization', 'company name', 'org name', 'org'],
-  [FIELD_TYPES.EXPERIENCE_YEARS]: ['experience', 'years of experience', 'yoe', 'yrs', 'total experience', 'exp', 'work experience', 'how many years'],
-  [FIELD_TYPES.TOTAL_EXPERIENCE_MONTHS]: ['experience in months', 'months of experience', 'total months'],
-  [FIELD_TYPES.NOTICE_PERIOD]: ['notice period', 'joining time', 'joining date', 'time to join', 'when can you join', 'availability', 'available from'],
-  [FIELD_TYPES.WORK_AUTHORIZATION]: ['authorization', 'authorized', 'visa', 'sponsorship', 'sponsor', 'right to work'],
+  [FIELD_TYPES.CURRENT_TITLE]: ['current title', 'current job title', 'job title', 'designation'],
+  [FIELD_TYPES.CURRENT_COMPANY]: ['current company', 'current employer', 'company name', 'organization name', 'organisation name'],
+  [FIELD_TYPES.EXPERIENCE_YEARS]: ['years of experience', 'years experience', 'experience in years', 'yoe', 'how many years'],
+  [FIELD_TYPES.TOTAL_EXPERIENCE_MONTHS]: ['experience in months', 'months of experience', 'total months of experience'],
+  [FIELD_TYPES.NOTICE_PERIOD]: ['notice period', 'notice period days'],
+  [FIELD_TYPES.WORK_AUTHORIZATION]: ['work authorization', 'work authorisation', 'authorized to work', 'authorised to work', 'right to work'],
   [FIELD_TYPES.RELOCATION_OK]: ['willing to relocate', 'open to relocation', 'relocate', 'relocation'],
   [FIELD_TYPES.REMOTE_WORK_OK]: ['remote work', 'work from home', 'wfh', 'remote job', 'work remotely', 'remote role'],
   [FIELD_TYPES.MARITAL_STATUS]: ['marital status', 'married', 'civil status'],
   [FIELD_TYPES.BLOOD_GROUP]: ['blood group', 'blood type'],
   [FIELD_TYPES.COLLEGE_NAME]: ['college', 'university', 'institution', 'institute', 'school name', 'alma mater', 'graduating from'],
-  [FIELD_TYPES.DEGREE]: ['degree', 'qualification', 'education level', 'highest qualification', 'program', 'programme', 'course'],
+  [FIELD_TYPES.DEGREE]: ['degree', 'highest qualification'],
   [FIELD_TYPES.BRANCH]: ['branch', 'specialization', 'specialisation', 'stream', 'discipline', 'major', 'field of study'],
-  [FIELD_TYPES.GRADUATION_YEAR]: ['graduation year', 'year of graduation', 'passing year', 'expected graduation', 'graduation month', 'batch', 'class of', 'year of passing'],
+  [FIELD_TYPES.GRADUATION_YEAR]: ['graduation year', 'year of graduation', 'passing year', 'expected graduation year', 'year of passing'],
   [FIELD_TYPES.CGPA]: ['cgpa', 'gpa', 'grade point average'],
   [FIELD_TYPES.TENTH_PERCENT]: ['10th percentage', 'tenth percentage', '10th marks', 'class 10', 'ssc', '10th board'],
   [FIELD_TYPES.TWELFTH_PERCENT]: ['12th percentage', 'twelfth percentage', '12th marks', 'class 12', 'hsc', '12th board', 'intermediate'],
-  [FIELD_TYPES.GENDER]: ['gender', 'sex', 'gender identity'],
+  [FIELD_TYPES.GENDER]: ['gender', 'gender identity'],
   [FIELD_TYPES.VETERAN_STATUS]: ['veteran', 'military', 'protected veteran'],
   [FIELD_TYPES.DISABILITY_STATUS]: ['disability', 'disabled', 'differently abled'],
   [FIELD_TYPES.SKILLS]: ['skills', 'technical skills', 'technologies', 'competencies', 'skill set'],
@@ -190,28 +190,29 @@ const FIELD_SIGNATURES = {
   'gender': FIELD_TYPES.GENDER
 };
 
-// Enhancement 2: Abbreviation Maps for Fuzzy Dropdown Matching
-// NOTE: keys must be lowercase field types (FIELD_TYPES values), not uppercase.
+// Curated aliases. An alias is applied only when it identifies one option.
+// NOTE: keys are lowercase field types (FIELD_TYPES values).
 const ABBREVIATION_MAPS = {
   country: {
-    'us': ['United States', 'USA', 'United States of America', 'America'],
+    'us': ['United States', 'USA', 'United States of America'],
     'in': ['India', 'IND', 'Bharat'],
-    'uk': ['United Kingdom', 'GB', 'Great Britain', 'England'],
+    'uk': ['United Kingdom', 'GB', 'Great Britain'],
     'ca': ['Canada', 'CAN'],
     'au': ['Australia', 'AUS'],
     'de': ['Germany', 'DEU', 'Deutschland'],
     'fr': ['France', 'FRA'],
     'sg': ['Singapore', 'SGP'],
-    'ae': ['United Arab Emirates', 'UAE', 'Dubai']
+    'ae': ['United Arab Emirates', 'UAE']
   },
   gender: {
     'm': ['Male', 'Man'],
-    'f': ['Female', 'Woman'],
-    'o': ['Other', 'Non-binary', 'Nonbinary', 'Decline to self-identify', 'Prefer not to say', 'Rather not say']
+    'f': ['Female', 'Woman']
   },
   degree: {
-    'b.tech': ['BTech', 'B.Tech', 'Bachelor of Technology', 'B Tech', 'B.E.', 'BE', 'Bachelor of Engineering'],
-    'm.tech': ['MTech', 'M.Tech', 'Master of Technology', 'M Tech', 'M.E.', 'ME', 'Master of Engineering'],
+    'b.tech': ['BTech', 'B.Tech', 'Bachelor of Technology', 'B Tech'],
+    'b.e.': ['BE', 'B.E.', 'Bachelor of Engineering'],
+    'm.tech': ['MTech', 'M.Tech', 'Master of Technology', 'M Tech'],
+    'm.e.': ['ME', 'M.E.', 'Master of Engineering'],
     'mba': ['MBA', 'Master of Business Administration'],
     'b.sc': ['BSc', 'B.Sc', 'BS', 'Bachelor of Science'],
     'm.sc': ['MSc', 'M.Sc', 'MS', 'Master of Science'],
@@ -224,59 +225,7 @@ const ABBREVIATION_MAPS = {
     '12th': ['12th', 'HSC', 'Higher Secondary', 'Intermediate', 'Class 12', 'Senior Secondary'],
     '10th': ['10th', 'SSC', 'Secondary', 'Class 10', ' matriculation']
   },
-  experience_years: {
-    'fresher': ['Fresher', 'Fresher / Entry level', 'Entry level', 'No experience', 'None', '0 years', 'Less than 1', 'Less than 1 year', '0-1 years', '0 - 1 years', 'Up to 1 year'],
-    '1-3': ['1-3 years', '1 - 3 years', '1 to 3 years', '2-3 years', '2 - 3 years', '1-2 years'],
-    '3-5': ['3-5 years', '3 - 5 years', '3 to 5 years', '4-5 years'],
-    '5+': ['5+ years', '5 or more', 'More than 5', '6+ years', '5-10 years', '10+ years'],
-    '10+': ['10+ years', '10 or more', 'More than 10', '15+ years']
-  },
-  total_experience_months: {
-    '0-6': ['0-6 months', 'Less than 6 months', 'Under 6 months', '0 - 6 months'],
-    '6-12': ['6-12 months', '6 to 12 months', '1 year or less'],
-    '12-24': ['1-2 years', '12-24 months', '1 to 2 years'],
-    '24-36': ['2-3 years', '24-36 months', '2 to 3 years'],
-    '36+': ['3+ years', 'More than 3 years', '36+ months']
-  },
-  notice_period: {
-    'immediate': ['Immediate', 'Immediately', 'Now', '0 days', 'As soon as possible', 'Joining immediately'],
-    '15': ['15 days', '15 days notice', 'Within 15 days', 'Half month'],
-    '30': ['30 days', '1 month', 'One month', 'Within a month', '30 days notice'],
-    '60': ['60 days', '2 months', 'Two months', '60 days notice'],
-    '90': ['90 days', '3 months', 'Three months', '90 days notice'],
-    '180': ['180 days', '6 months', 'Six months', '180 days notice']
-  },
-  // The profile column is named notice_period_days, so the map is reachable
-  // under both the column name and the plain field name.
-  notice_period_days: {
-    'immediate': ['Immediate', 'Immediately', 'Now', '0 days', 'As soon as possible', 'Joining immediately'],
-    '15': ['15 days', '15 days notice', 'Within 15 days', 'Half month'],
-    '30': ['30 days', '1 month', 'One month', 'Within a month', '30 days notice'],
-    '60': ['60 days', '2 months', 'Two months', '60 days notice'],
-    '90': ['90 days', '3 months', 'Three months', '90 days notice'],
-    '180': ['180 days', '6 months', 'Six months', '180 days notice']
-  },
-  work_authorization: {
-    'yes': ['Yes', 'Authorized', 'Authorised', 'Eligible', 'I am authorized', 'Yes, I am authorized'],
-    'no': ['No', 'Not authorized', 'Not authorised', 'No sponsorship', 'Will require sponsorship', 'Require sponsorship']
-  },
-  relocation_ok: {
-    'yes': ['Yes', 'Willing to relocate', 'Open to relocation', 'Happy to relocate', 'Yes, willing'],
-    'no': ['No', 'Not willing to relocate', 'Unable to relocate', 'No, cannot relocate']
-  },
-  remote_work_ok: {
-    'yes': ['Yes', 'Open to remote', 'Happy to work remotely', 'Yes, remote'],
-    'no': ['No', 'Prefer on-site', 'No, on-site only', 'Onsite only', 'No remote']
-  },
-  veteran_status: {
-    'yes': ['Yes', 'I am a veteran', 'Protected veteran', 'Yes, veteran'],
-    'no': ['No', 'Not a veteran', 'I am not a veteran', 'No, never served']
-  },
-  disability_status: {
-    'yes': ['Yes', 'I have a disability', 'Yes, disabled'],
-    'no': ['No', 'No disability', 'I do not have a disability', 'No, none'],
-    'prefer not to say': ['Prefer not to say', 'Decline to self-identify', 'Rather not say', 'Not disclosed', 'Prefer not to disclose']
-  }
+  // Duration buckets are resolved numerically with compatible units instead.
 };
 
 // ── Consent / attestation detection ──
@@ -354,18 +303,8 @@ const MONTH_NAMES = {
   dec: 12, december: 12
 };
 
-const TRUE_WORDS = new Set([
-  'yes', 'y', 'true', '1', 'on', 'required', 'mandatory', 'eligible', 'authorized',
-  'authorised', 'available', 'immediate', 'already', 'done', 'agree', 'agreed', 'accept',
-  'accepted', 'confirmed', 'willing', 'able', 'open', 'full time', 'fulltime', 'full-time',
-  'employed', 'experienced', 'yes i do', 'yes i have', 'yes i am'
-]);
-
-const FALSE_WORDS = new Set([
-  'no', 'n', 'false', '0', 'off', 'not required', 'optional', 'ineligible', 'not authorized',
-  'not authorised', 'unavailable', 'unwilling', 'unable', 'not interested', 'no i do not',
-  'no i do not have', 'no i am not'
-]);
+const TRUE_WORDS = new Set(['yes', 'y', 'true', '1', 'on']);
+const FALSE_WORDS = new Set(['no', 'n', 'false', '0', 'off']);
 
 /** Pull a boolean out of arbitrary option text. Returns true/false/null. */
 function parseBooleanOption(text) {
@@ -373,7 +312,7 @@ function parseBooleanOption(text) {
   if (!t) return null;
   if (TRUE_WORDS.has(t)) return true;
   if (FALSE_WORDS.has(t)) return false;
-  // Leading yes/no, e.g. "Yes, I am authorized" / "No, I cannot relocate"
+  // Explicit leading Yes/No options are safe; inferred prose is not.
   if (/^(yes|y)\b/.test(t)) return true;
   if (/^(no|n)\b/.test(t)) return false;
   return null;
@@ -400,38 +339,68 @@ function parseRangeFromText(text) {
   if (!t) return null;
   t = t.replace(/[()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return null;
+  const unit = /\b(?:years?|yrs?|annum)\b/.test(t) ? 'years'
+    : /\b(?:months?|mos?)\b/.test(t) ? 'months'
+      : /\b(?:days?|d)\b/.test(t) ? 'days'
+        : /\b(?:percent|percentage)\b|%/.test(t) ? 'percent'
+          : null;
+  const exact = (value, extra = {}) => ({
+    min: value,
+    max: value,
+    minInclusive: true,
+    maxInclusive: true,
+    isOpenTop: false,
+    exact: true,
+    unit,
+    ...extra
+  });
+  const interval = (min, max, extra = {}) => ({
+    min,
+    max,
+    minInclusive: true,
+    maxInclusive: true,
+    isOpenTop: max === Infinity,
+    unit,
+    ...extra
+  });
 
   // Bare year/grade markers, e.g. "12th", "10th", "Final year"
   const grade = t.match(/^(\d{1,2})\s*(st|nd|rd|th)$/);
-  if (grade) return { min: Number(grade[1]), max: Number(grade[1]), isOpenTop: false, exact: true };
+  if (grade) return exact(Number(grade[1]), { unit: 'ordinal' });
 
   // Open-ended top: "4+", "4 +", "4 and above", "more than 4", "above 4", "over 4"
   let m = t.match(/^(\d+(?:\.\d+)?)\s*\+/) || t.match(/^(\d+(?:\.\d+)?)\s*(?:and above|or more|and above|plus)\b/);
-  if (m) return { min: Number(m[1]), max: Infinity, isOpenTop: true };
+  if (m) return interval(Number(m[1]), Infinity);
   m = t.match(/\b(?:more than|over|above|greater than|at least|minimum)\s*(\d+(?:\.\d+)?)/);
-  if (m) return { min: Number(m[1]), max: Infinity, isOpenTop: true };
+  if (m) {
+    const inclusive = /\b(?:at least|minimum)\b/.test(t);
+    return interval(Number(m[1]), Infinity, { minInclusive: inclusive });
+  }
 
-  // "up to", "less than", "under", "within", "below" → 0..n
+  // Upper bounds retain inclusivity so fractional values aren't rounded away.
   m = t.match(/\b(?:up to|less than|under|within|below|not more than|at most|max)\s*(\d+(?:\.\d+)?)/);
-  if (m) return { min: 0, max: Number(m[1]) - 1, isOpenTop: false };
+  if (m) {
+    const exclusive = /\b(?:less than|under|below)\b/.test(t);
+    return interval(0, Number(m[1]), { maxInclusive: !exclusive });
+  }
 
   // "under 1 year" handled above; guard the common "1 year or less"
   m = t.match(/^(\d+(?:\.\d+)?)\s*(?:year|yr)s?\s*or\s*(?:less|fewer)/);
-  if (m) return { min: 0, max: Number(m[1]), isOpenTop: false };
+  if (m) return interval(0, Number(m[1]));
 
   // "2-3 years", "2 to 3", "2 - 3 yrs", "2-3"
   m = t.match(/(\d+(?:\.\d+)?)\s*(?:-|–|—|to|and)\s*(\d+(?:\.\d+)?)/);
   if (m) {
     const a = Number(m[1]);
     const b = Number(m[2]);
-    return { min: Math.min(a, b), max: Math.max(a, b), isOpenTop: false };
+    return interval(Math.min(a, b), Math.max(a, b));
   }
 
   // Single number, e.g. "2 years", "18-24 months" already handled
-  m = t.match(/^(\d+(?:\.\d+)?)\s*(?:year|yr|month|month s|months|annum)s?\b/);
-  if (m) return { min: Number(m[1]), max: Number(m[1]), isOpenTop: false, exact: true };
+  m = t.match(/^(\d+(?:\.\d+)?)\s*(?:years?|yrs?|months?|mos?|days?|annum)\b/);
+  if (m) return exact(Number(m[1]));
   m = t.match(/^(\d+(?:\.\d+)?)$/);
-  if (m) return { min: Number(m[1]), max: Number(m[1]), isOpenTop: false, exact: true };
+  if (m) return exact(Number(m[1]));
 
   return null;
 }
@@ -467,12 +436,6 @@ function parseOrdinal(text) {
   if (Object.prototype.hasOwnProperty.call(ORDINAL_WORDS, t)) return ORDINAL_WORDS[t];
   const m = t.match(/^(\d{1,2})(?:st|nd|rd|th)\b/);
   if (m) return Number(m[1]);
-  // A bare small integer is an ordinal too: options "First / Second / Third"
-  // asked by a stored value of "2".
-  if (/^\d{1,2}$/.test(t)) {
-    const n = Number(t);
-    if (n >= 1 && n <= 20) return n;
-  }
   return null;
 }
 
@@ -586,6 +549,22 @@ function parseDateParts(raw) {
   return null;
 }
 
+function hasFullDatePrecision(raw) {
+  const value = String(raw || '').trim();
+  return /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:[T ]\d{1,2}:\d{2})?$/.test(value)
+    || /^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}$/.test(value)
+    || /^\d{8}$/.test(value)
+    || /^\d{1,2}(?:st|nd|rd|th)?[\s\-/.]+[a-z]{3,9}[\s\-/.]+\d{4}$/i.test(value)
+    || /^[a-z]{3,9}[\s\-/.]+\d{1,2}(?:st|nd|rd|th)?,?[\s\-/.]+\d{4}$/i.test(value);
+}
+
+function hasMonthPrecision(raw) {
+  const value = String(raw || '').trim();
+  return /^\d{4}[-/]\d{1,2}$/.test(value)
+    || /^[a-z]{3,9}[\s\-/.,]+\d{4}$/i.test(value)
+    || hasFullDatePrecision(value);
+}
+
 /**
  * Format a raw date-ish value for a given control kind.
  * `order` ('dmy' | 'mdy') resolves ambiguous numeric dates.
@@ -596,12 +575,31 @@ function normalizeDateValue(raw, kind, order) {
   const p = parseDateParts(raw);
   if (!p) return null;
 
-  const y = p.y;
-  const mo = p.m;
-  const d = p.d;
+  if ([FIELD_KIND.DATE, FIELD_KIND.DATETIME, FIELD_KIND.DATE_PARTS].includes(kind)
+    && !hasFullDatePrecision(raw)) return null;
+  if (kind === FIELD_KIND.MONTH && !hasMonthPrecision(raw)) return null;
+
+  let resolved = p;
+  if (p.ambiguous) {
+    if (order !== 'dmy' && order !== 'mdy') return null;
+    const triple = String(raw).trim().match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);
+    if (!triple) return null;
+    const first = Number(triple[1]);
+    const second = Number(triple[2]);
+    resolved = order === 'dmy'
+      ? { ...p, m: second, d: first }
+      : { ...p, m: first, d: second };
+  }
+
+  const y = resolved.y;
+  const mo = resolved.m;
+  const d = resolved.d;
   if (!y || y < 1000 || y > 3000) return null;
   if (!mo || mo < 1 || mo > 12) return null;
   if (!d || d < 1 || d > 31) return null;
+  const calendarDate = new Date(Date.UTC(y, mo - 1, d));
+  if (calendarDate.getUTCFullYear() !== y || calendarDate.getUTCMonth() !== mo - 1 || calendarDate.getUTCDate() !== d) return null;
+  if (kind === FIELD_KIND.DATETIME && !/[T ]\d{1,2}:\d{2}/.test(String(raw))) return null;
 
   switch (kind) {
     case FIELD_KIND.DATE:
@@ -609,7 +607,7 @@ function normalizeDateValue(raw, kind, order) {
     case FIELD_KIND.MONTH:
       return `${y}-${_pad(mo, 2)}`;
     case FIELD_KIND.DATETIME:
-      return `${y}-${_pad(mo, 2)}-${_pad(d, 2)}T${_pad(p.hh || 0, 2)}:${_pad(p.mm || 0, 2)}`;
+      return `${y}-${_pad(mo, 2)}-${_pad(d, 2)}T${_pad(resolved.hh || 0, 2)}:${_pad(resolved.mm || 0, 2)}`;
     case FIELD_KIND.TIME:
       return `${_pad(p.hh || 0, 2)}:${_pad(p.mm || 0, 2)}`;
     case FIELD_KIND.DATE_PARTS: {

@@ -48,6 +48,14 @@ async function runAutofill(tab) {
   try { domain = new URL(tab.url || '').hostname.toLowerCase(); } catch (error) { /* unsupported page */ }
   const corrections = allCorrections.filter(item => item.domain === domain);
 
+  const hasProfileValue = Object.values(profile).some(value => Array.isArray(value)
+    ? value.length > 0
+    : value !== null && value !== undefined && String(value).trim() !== '');
+  if (!hasProfileValue) {
+    await setTabBadge(tab.id, '');
+    return { success: false, error: 'Add profile details before filling a form.' };
+  }
+
   const result = await messageTab(tab.id, {
     action: 'autofill',
     profile,
@@ -57,9 +65,10 @@ async function runAutofill(tab) {
 
   if (!result || !result.success) {
     await setTabBadge(tab.id, '!');
-    return;
+    return result || { success: false, error: 'FormPilot did not receive a fill report.' };
   }
   await setTabBadge(tab.id, result.report && result.report.filled ? result.report.filled : '');
+  return result;
 }
 
 function correctionDomain(sender) {
@@ -73,6 +82,18 @@ function correctionDomain(sender) {
 
 FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || sender.id !== FormPilotAPI.runtime.id) return false;
+
+  if (message.action === 'run_autofill') {
+    FormPilotAPI.tabs.query({ active: true, currentWindow: true })
+      .then(tabs => {
+        const tab = tabs && tabs[0];
+        if (!tab || typeof tab.id !== 'number') throw new Error('No active page is available.');
+        return runAutofill(tab);
+      })
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 
   if (message.action === 'save_correction') {
     const domain = correctionDomain(sender);
@@ -94,12 +115,4 @@ FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   return false;
-});
-
-FormPilotAPI.action.onClicked.addListener((tab) => {
-  if (!tab || typeof tab.id !== 'number') return;
-  runAutofill(tab).catch(async (error) => {
-    console.error('[FormPilot] Autofill could not start:', error.message);
-    await setTabBadge(tab.id, '!');
-  });
 });

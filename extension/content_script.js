@@ -7,7 +7,8 @@
 // ═══════════════════════════════════════
 
 const FormPilotAPI = globalThis.browser || globalThis.chrome;
-let fpSettings = { highlightDuration: 3 };
+const HIGHLIGHT_DURATION_MS = 2200;
+let fpSettings = { allowProtectedDemographicAutofill: false };
 
 const MAX_AUTOFILL_PASSES = 4;
 const DOM_SETTLE_MS = 450;
@@ -76,9 +77,9 @@ function injectHighlightStyles() {
       transition: outline 0.3s ease-out, background-color 0.3s ease-out, box-shadow 0.3s ease-out !important;
     }
     [data-formpilot-highlight="high"] {
-      outline: 2px solid #2d8a4e !important;
+      outline: 2px solid #000 !important;
       outline-offset: 2px !important;
-      box-shadow: 0 0 8px rgba(45, 138, 78, 0.4) !important;
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12) !important;
     }
   `;
   document.head.appendChild(style);
@@ -87,11 +88,10 @@ function injectHighlightStyles() {
 function applyHighlight(el, level = 'high') {
   if (!el) return;
   el.setAttribute('data-formpilot-highlight', level);
-  const ms = fpSettings.highlightDuration * 1000;
-  if (ms > 0 && ms <= 10000) { // If > 10s or 0, infinite (don't clear)
+  if (HIGHLIGHT_DURATION_MS > 0) {
     setTimeout(() => {
       el.removeAttribute('data-formpilot-highlight');
-    }, ms);
+    }, HIGHLIGHT_DURATION_MS);
   }
 }
 
@@ -1208,27 +1208,22 @@ function matchField(field, profile, corrections = {}) {
 
   const label = normalizeLabel(fieldLabelOf(field));
 
+  // A bare "Name" is too context dependent without a personal/applicant cue.
+  if (label === 'name') {
+    const personalContext = /\b(applicant|candidate|personal|your details|contact details)\b/.test(section);
+    if (!personalContext) return null;
+    const value = getProfileValue(FIELD_TYPES.FULL_NAME, profile);
+    return value ? { type: FIELD_TYPES.FULL_NAME, value } : null;
+  }
+
   // Hard block: fields that belong to someone else, regardless of section.
   for (const neg of HARD_NEGATIVE_LABEL_KEYWORDS) {
     if (labelHasToken(label, neg)) return null;
   }
-  // Soft block: only reject when the section ALSO looks like another
-  // person's section (e.g. "Emergency Contact" + "Phone"). A bare
-  // "Reference Number" or "Secondary Email" in a normal section fills.
+  // These labels are ambiguous about whose information is requested, even if
+  // the page does not expose a useful section heading.
   for (const neg of SOFT_NEGATIVE_LABEL_KEYWORDS) {
-    if (!labelHasToken(label, neg)) continue;
-    let sectionConfirms = false;
-    for (const skip of SKIP_SECTIONS) {
-      if (sectionHasToken(section, normalizeLabel(skip))) { sectionConfirms = true; break; }
-    }
-    if (sectionConfirms) return null;
-    // Also block classic "X's Y" other-person phrasing even without a section,
-    // e.g. "father name", "spouse phone", "manager email".
-    let otherPersonCue = false;
-    for (const hard of HARD_NEGATIVE_LABEL_KEYWORDS) {
-      if (labelHasToken(label, hard)) { otherPersonCue = true; break; }
-    }
-    if (otherPersonCue) return null;
+    if (labelHasToken(label, normalizeLabel(neg))) return null;
   }
 
   // Consent / attestation boxes are never matched to profile data.
@@ -1249,9 +1244,7 @@ function matchField(field, profile, corrections = {}) {
   for (const [sig, type] of Object.entries(FIELD_SIGNATURES)) {
     const normSig = normalizeSig(sig);
     if (!normSig) continue;
-    if (normName === normSig || normId === normSig
-      || (normName && normName.includes(normSig))
-      || (normId && normId.includes(normSig))) {
+    if (normName === normSig || normId === normSig) {
       const value = getProfileValue(type, profile);
       // An empty profile value is a miss, not something to write into the form.
       if (value === '' || value === null || value === undefined) return null;
@@ -1264,7 +1257,7 @@ function matchField(field, profile, corrections = {}) {
   //    first. Without this, "Total experience in months" matched the generic
   //    "experience" keyword and was answered with years.
   const labelExact = label;
-  let best = null;
+  const candidates = [];
   for (const [type, keywords] of Object.entries(FIELD_KEYWORDS)) {
     for (const rawKw of keywords) {
       const kw = normalizeLabel(rawKw);
@@ -1272,10 +1265,16 @@ function matchField(field, profile, corrections = {}) {
       if (!labelHasToken(label, kw)) continue;
       // Longest keyword wins; an exact whole-label match outranks a partial one.
       const score = (labelExact === kw ? 10000 : 0) + kw.length;
-      if (!best || score > best.score) best = { type, kw, score };
+      candidates.push({ type, kw, score });
     }
   }
-  if (best) {
+  if (candidates.length) {
+    const bestScore = Math.max(...candidates.map(candidate => candidate.score));
+    const bestTypes = new Set(candidates
+      .filter(candidate => candidate.score === bestScore)
+      .map(candidate => candidate.type));
+    if (bestTypes.size !== 1) return null;
+    const best = candidates.find(candidate => candidate.score === bestScore);
     const value = getProfileValue(best.type, profile);
     // An empty profile value is a miss, not something to write into the form.
     if (value === '' || value === null || value === undefined) return null;
@@ -1293,6 +1292,7 @@ function matchField(field, profile, corrections = {}) {
 
 const FILL_OK = 'filled';
 const FILL_NO_OPTION = 'no-option';
+const FILL_AMBIGUOUS = 'ambiguous';
 const FILL_NO_VALUE = 'no-value';
 const FILL_DEFERRED = 'deferred';
 const FILL_UNSUPPORTED = 'unsupported';
@@ -1309,13 +1309,17 @@ function fillSelectOne(field, option) {
   if (before === option.value) { blurToCommit(el); return ok(option.value); }
   setNativeInputValue(el, option.value);
   blurToCommit(el);
-  if (el.value !== option.value) return fail(FILL_FAILED, option.value);
+  if (el.value !== option.value) {
+    setNativeInputValue(el, before);
+    return fail(FILL_FAILED, option.value);
+  }
   return ok(option.value);
 }
 
 /** Select several options in a <select multiple>. */
 function fillSelectMultiple(field, options) {
   const el = field.element;
+  const before = Array.from(el.selectedOptions).map(option => option.value);
   for (const o of Array.from(el.options)) o.selected = false;
   for (const o of options) {
     for (const candidate of Array.from(el.options)) {
@@ -1328,29 +1332,36 @@ function fillSelectMultiple(field, options) {
   blurToCommit(el);
   const nowSelected = Array.from(el.selectedOptions).map(o => o.value);
   const wanted = options.map(o => o.value);
-  const allSet = wanted.every(v => nowSelected.includes(v));
-  return allSet ? ok(wanted) : fail(FILL_FAILED, nowSelected);
+  const allSet = wanted.length === nowSelected.length && wanted.every(v => nowSelected.includes(v));
+  if (allSet) return ok(wanted);
+  for (const option of Array.from(el.options)) option.selected = before.includes(option.value);
+  blurToCommit(el);
+  return fail(FILL_FAILED, nowSelected);
 }
 
 /** Check exactly one radio in a group. */
 function fillRadio(field, option) {
-  if (option.selected) { return ok(option.value); }
   const target = option.el;
   if (!target) return fail(FILL_FAILED, option.value);
 
   if (target.tagName === 'INPUT') {
+    const before = target.checked;
     forceChecked(target, true);
-    if (target.checked) { blurToCommit(target); return ok(option.value); }
+    const selected = field.options.filter(item => item.el && item.el.checked);
+    if (selected.length === 1 && selected[0].el === target) { blurToCommit(target); return ok(option.value); }
+    if (target.checked !== before) forceChecked(target, before);
     return fail(FILL_FAILED, option.value);
   }
 
   // Div/span radio (Google Forms, MS Forms)
   userClick(target);
-  if (target.getAttribute('aria-checked') === 'true') return ok(option.value);
-  // Some wrappers only mark a child
-  const inner = target.querySelector('[role="radio"], input[type="radio"]');
-  if (inner && (inner.getAttribute('aria-checked') === 'true' || inner.checked)) return ok(option.value);
-  if (target.querySelector('[aria-checked="true"], input:checked')) return ok(option.value);
+  const selected = field.options.filter(item => {
+    const node = item.el;
+    return node && (node.getAttribute('aria-checked') === 'true'
+      || node.getAttribute('aria-selected') === 'true'
+      || !!node.querySelector('[aria-checked="true"], input:checked'));
+  });
+  if (selected.length === 1 && selected[0].el === target) return ok(option.value);
   return fail(FILL_FAILED, option.value);
 }
 
@@ -1359,13 +1370,17 @@ function fillCheckbox(field, option, shouldBeChecked) {
   const target = option.el;
   if (!target) return fail(FILL_FAILED, option.value);
   if (target.tagName === 'INPUT') {
+    const before = target.checked;
     forceChecked(target, shouldBeChecked);
     if (target.checked === shouldBeChecked) return ok(shouldBeChecked ? option.value : '');
+    forceChecked(target, before);
     return fail(FILL_FAILED, option.value);
   }
   const isChecked = () => target.getAttribute('aria-checked') === 'true' || (target.querySelector && !!target.querySelector('input:checked'));
+  const before = isChecked();
   if (isChecked() !== shouldBeChecked) userClick(target);
   if (isChecked() === shouldBeChecked) return ok(shouldBeChecked ? option.value : '');
+  if (isChecked() !== before) userClick(target);
   return fail(FILL_FAILED, option.value);
 }
 
@@ -1378,15 +1393,19 @@ function fillRichText(field, value) {
 function fillDateParts(field, rawValue) {
   const normalized = normalizeDateValue(rawValue, FIELD_KIND.DATE_PARTS, field.dateOrder);
   if (!normalized || typeof normalized !== 'object') return fail(FILL_NO_VALUE, rawValue);
+  const before = {};
   let allSet = true;
   for (const role of ['dd', 'mm', 'yyyy']) {
     const input = field.dateParts[role];
-    if (!input) continue;
+    if (!input) { allSet = false; continue; }
+    before[role] = input.value;
     setNativeInputValue(input, normalized[role]);
     blurToCommit(input);
     if (String(input.value).trim() !== String(normalized[role]).trim()) allSet = false;
   }
-  return allSet ? ok(normalized) : fail(FILL_FAILED, rawValue);
+  if (allSet) return ok(normalized);
+  for (const [role, value] of Object.entries(before)) setNativeInputValue(field.dateParts[role], value);
+  return fail(FILL_FAILED, rawValue);
 }
 
 /** Fill a native or picker-backed date control. */
@@ -1408,42 +1427,78 @@ function fillDateField(field, rawValue) {
   blurToCommit(el);
   // Browsers silently reject a malformed value — so read back and compare.
   if (String(el.value).trim() !== normalized) {
-    return fail(el.value ? FILL_FAILED : FILL_NO_VALUE, normalized);
+    setNativeInputValue(el, before);
+    return fail(FILL_FAILED, normalized);
   }
   return ok(normalized);
 }
 
-/** Drive a JS date-picker popup to a specific day. */
-function fillPickerDate(field, rawValue) {
-  const parts = parseDateParts(rawValue);
+function calendarViewMatches(popup, parts) {
+  const title = popup.querySelector('.flatpickr-current-month, [data-calendar-title], [role="heading"]');
+  const text = title ? String(title.textContent || '').trim() : '';
+  const match = text.match(/([a-z]{3,9})\s+(\d{4})/i);
+  if (!match) return false;
+  const month = MONTH_NAMES[match[1].toLowerCase()];
+  return month === parts.m && Number(match[2]) === parts.y;
+}
+
+function pickerOptionMatches(option, parts, viewMatches) {
+  const node = option.el;
+  const explicitDate = node.getAttribute('data-date') || node.getAttribute('aria-label');
+  if (explicitDate) {
+    const parsed = parseDateParts(explicitDate);
+    if (parsed && !parsed.ambiguous) {
+      return parsed.y === parts.y && parsed.m === parts.m && parsed.d === parts.d;
+    }
+  }
+  return viewMatches && /^\d{1,2}$/.test(option.text.trim()) && Number(option.text.trim()) === parts.d;
+}
+
+/** Fill a date picker only when its displayed month/year and selected day agree. */
+async function fillPickerDate(field, rawValue) {
+  const expected = normalizeDateValue(rawValue, FIELD_KIND.DATE, field.dateOrder);
+  const parts = expected && parseDateParts(expected);
   if (!parts) return fail(FILL_NO_VALUE, rawValue);
+
   const input = field.element;
   const before = snapshotVisiblePopups();
   openDropdown(input);
   const popup = pickOpenedPopup(input, before, null);
   if (!popup) {
     closeDropdown(input);
-    return fail(FILL_FAILED, rawValue);
+    return fail(FILL_NO_OPTION, rawValue);
   }
-  const options = readPopupOptions(popup);
-  const pad = n => String(n).padStart(2, '0');
-  const wantFull = pad(parts.d);
-  const wantShort = String(parts.d);
-  const day = options.find(o => {
-    const t = o.text.replace(/\D/g, '');
-    return t === wantFull || t === wantShort;
-  });
-  if (day && !day.disabled) {
-    userClick(day.el);
-  } else {
-    // Typing into a flatpickr input is the reliable fallback.
-    const typed = typeIntoWidget(input, `${pad(parts.d)}/${pad(parts.m)}/${parts.y}`);
-    if (!typed) { closeDropdown(input); return fail(FILL_NO_OPTION, rawValue); }
+
+  const viewMatches = calendarViewMatches(popup, parts);
+  const candidates = readPopupOptions(popup).filter(option => pickerOptionMatches(option, parts, viewMatches));
+  if (candidates.length !== 1 || candidates[0].disabled) {
+    closeDropdown(input);
+    return fail(candidates.length > 1 ? FILL_AMBIGUOUS : FILL_NO_OPTION, rawValue);
   }
+
+  userClick(candidates[0].el);
+  await sleep(60);
   closeDropdown(input);
-  const now = String(input.value || '').trim();
-  if (!now) return fail(FILL_FAILED, rawValue);
-  return ok(now);
+  const actual = normalizeDateValue(input.value, FIELD_KIND.DATE, field.dateOrder);
+  if (actual === expected) return ok(expected);
+  setNativeInputValue(input, '');
+  return fail(FILL_FAILED, rawValue);
+}
+
+function optionReadbackMatches(shown, option) {
+  const actual = normalizeOptionText(shown);
+  if (!actual) return false;
+  return actual === normalizeOptionText(option.text)
+    || actual === normalizeOptionText(option.value);
+}
+
+function optionIsSelected(option) {
+  const node = option && option.el;
+  return !!node && (option.selected === true
+    || node.selected === true
+    || node.checked === true
+    || node.getAttribute('aria-selected') === 'true'
+    || node.getAttribute('aria-checked') === 'true');
 }
 
 /**
@@ -1470,43 +1525,29 @@ async function fillCustomDropdown(field, option, matchData) {
       await sleep(60);
       const shown = readTriggerValue(trigger) || trigger.getAttribute('data-value') || '';
       closeDropdown(trigger);
-      if (shown) return ok(shown);
-      // No visible text (some widgets only update a hidden input) — accept the
-      // click, but only if the option is now marked selected.
-      if (hit.selected || (hit.el.getAttribute && hit.el.getAttribute('aria-selected') === 'true')) {
-        return ok(desiredText);
-      }
-      return fail(FILL_FAILED, desiredText);
+      if (optionReadbackMatches(shown, hit)) return ok(hit.value || hit.text);
+      if (!shown && optionIsSelected(hit)) return ok(hit.value || hit.text);
+      return fail(FILL_FAILED, shown || desiredText);
     }
-    // Opened, but the option is not there — type-ahead handles filtered lists.
     closeDropdown(trigger);
-    if (typeIntoWidget(trigger, desiredText)) {
-      await sleep(80);
-      const shown = readTriggerValue(trigger) || trigger.getAttribute('data-value') || '';
-      closeDropdown(trigger);
-      if (shown) return ok(shown);
-      return fail(FILL_NO_OPTION, desiredText);
-    }
-    return fail(reason === 'deferred' ? FILL_DEFERRED : FILL_NO_OPTION, desiredText);
+    return fail(reason === 'deferred' ? FILL_DEFERRED
+      : reason === 'ambiguous' ? FILL_AMBIGUOUS : FILL_NO_OPTION, desiredText);
   }
 
-  // Nothing opened: the widget may be keyboard-driven (MS Forms combobox) or
-  // its options may be statically present but visually hidden.
+  // A keyboard-only list is supported only when its options were collected
+  // and one uniquely matched option can be verified after selection.
   const statics = field.options || [];
   if (statics.length) {
-    const { option: hit } = resolveOption(statics, desiredText, matchData && matchData.type);
+    const { option: hit, reason } = resolveOption(statics, desiredText, matchData && matchData.type);
     if (hit) {
       userClick(hit.el);
       await sleep(40);
       const shown = readTriggerValue(trigger) || trigger.getAttribute('data-value') || '';
-      if (shown) return ok(shown);
-      if (hit.selected) return ok(desiredText);
+      if (optionReadbackMatches(shown, hit)) return ok(hit.value || hit.text);
+      if (!shown && optionIsSelected(hit)) return ok(hit.value || hit.text);
+      return fail(FILL_FAILED, shown || desiredText);
     }
-  }
-  if (keyboardSelect(trigger, desiredText)) {
-    await sleep(60);
-    const shown = readTriggerValue(trigger) || trigger.getAttribute('data-value') || '';
-    if (shown) return ok(shown);
+    if (reason === 'ambiguous') return fail(FILL_AMBIGUOUS, desiredText);
   }
   closeDropdown(trigger);
   return fail(FILL_NO_OPTION, desiredText);
@@ -1570,13 +1611,17 @@ async function fillField(field, matchData) {
       targets = [option];
     }
     const wanted = new Set(targets.map(o => o.value));
-    let allOk = true;
-    for (const opt of field.options) {
-      if (opt.disabled) continue;
-      if (fillCheckbox(field, opt, wanted.has(opt.value)).status !== FILL_OK) allOk = false;
-    }
-    return allOk ? ok(targets.map(o => o.value)) : fail(FILL_FAILED, targets.map(o => o.value));
+  let allOk = true;
+  for (const opt of field.options) {
+    if (opt.disabled) continue;
+    if (fillCheckbox(field, opt, wanted.has(opt.value)).status !== FILL_OK) allOk = false;
   }
+  if (allOk) return ok(targets.map(o => o.value));
+  for (const opt of field.options) {
+    if (!opt.disabled) fillCheckbox(field, opt, false);
+  }
+  return fail(FILL_FAILED, targets.map(o => o.value));
+}
 
   // ── Single-choice controls ──
   if (CHOICE_KINDS.has(kind)) {
@@ -1613,14 +1658,21 @@ async function fillField(field, matchData) {
   if (kind === FIELD_KIND.NUMBER) {
     const n = coerceNumericValue(text);
     if (n === null) return fail(FILL_NO_VALUE, text);
+    const before = el.value;
     setNativeInputValue(el, String(n));
     blurToCommit(el);
-    return String(el.value).trim() === String(n) ? ok(n) : fail(FILL_FAILED, n);
+    if (String(el.value).trim() === String(n)) return ok(n);
+    setNativeInputValue(el, before);
+    return fail(FILL_FAILED, n);
   }
   if (kind === FIELD_KIND.CUSTOM_DROPDOWN) return fail(FILL_UNSUPPORTED, text);
+  const before = el.value;
   setNativeInputValue(el, text);
   blurToCommit(el);
-  if (String(el.value ?? '').trim() !== text.trim()) return fail(FILL_FAILED, text);
+  if (String(el.value ?? '').trim() !== text.trim()) {
+    setNativeInputValue(el, before);
+    return fail(FILL_FAILED, text);
+  }
   return ok(text);
 }
 
@@ -1707,7 +1759,9 @@ function trackFieldCorrections(field, filledValue) {
 
 function makeReport() {
   return {
+    totalFields: 0,
     filled: 0,
+    ambiguous: 0,
     noOption: 0,
     noValue: 0,
     deferred: 0,
@@ -1717,36 +1771,63 @@ function makeReport() {
     consent: 0,
     blocked: 0,
     unmatched: 0,
-    failures: []
+    failures: [],
+    details: []
   };
 }
 
-function recordResult(report, field, result) {
+function addFieldDetail(report, field, status, reason = '', source = '') {
+  if (report.details.length >= 50) return;
+  report.details.push({
+    label: fieldLabelOf(field) || 'Unlabeled field',
+    status,
+    reason,
+    source
+  });
+}
+
+function recordResult(report, field, result, source = '') {
   switch (result.status) {
     case FILL_OK:
       report.filled++;
+      addFieldDetail(report, field, 'filled', '', source);
       return true;
     case FILL_SKIPPED:
-      if (result.value === 'consent') { report.consent++; return false; }
+      if (result.value === 'consent') {
+        report.consent++;
+        addFieldDetail(report, field, 'skipped', 'Agreement left for your review.');
+        return false;
+      }
       report.skipped++;
+      addFieldDetail(report, field, 'skipped', 'This field already has a value.');
       return false;
     case FILL_NO_OPTION:
       report.noOption++;
       report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
+      addFieldDetail(report, field, 'skipped', 'No supported option matched the saved value.');
+      return false;
+    case FILL_AMBIGUOUS:
+      report.ambiguous++;
+      report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
+      addFieldDetail(report, field, 'skipped', 'More than one option matched.');
       return false;
     case FILL_NO_VALUE:
       report.noValue++;
+      addFieldDetail(report, field, 'skipped', 'No saved value was available.');
       return false;
     case FILL_DEFERRED:
       report.deferred++;
+      addFieldDetail(report, field, 'skipped', 'This answer needs a manual follow-up.');
       return false;
     case FILL_UNSUPPORTED:
       report.unsupported++;
       report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
+      addFieldDetail(report, field, 'skipped', 'This control needs manual input.');
       return false;
     default:
       report.failed++;
       report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
+      addFieldDetail(report, field, 'failed', 'FormPilot could not verify the result.');
       return false;
   }
 }
@@ -1755,23 +1836,31 @@ function recordResult(report, field, result) {
 async function processField(field, ctx) {
   const label = fieldLabelOf(field);
   const report = ctx.report;
+  report.totalFields++;
 
   if (!label) {
     report.unmatched++;
+    addFieldDetail(report, field, 'skipped', 'No readable field label was found.');
     return;
   }
-  if (isSensitiveField(label)
-    || (field.element && field.element.type === 'password')
-    || (isProtectedDemographicField(label) && !fpSettings.allowProtectedDemographicAutofill)) {
+  const passwordField = field.element && field.element.type === 'password';
+  const sensitiveField = isSensitiveField(label) || passwordField;
+  const demographicField = isProtectedDemographicField(label) && !fpSettings.allowProtectedDemographicAutofill;
+  if (sensitiveField || demographicField) {
     report.blocked++;
+    addFieldDetail(report, field, 'skipped', sensitiveField
+      ? 'Sensitive fields are never autofilled.'
+      : 'Demographic autofill is disabled in Settings.');
     return;
   }
   if (field.isConsent) {
     report.consent++;
+    addFieldDetail(report, field, 'skipped', 'Agreement left for your review.');
     return;
   }
   if (field.kind === FIELD_KIND.FILE) {
     report.unsupported++;
+    addFieldDetail(report, field, 'skipped', 'File uploads need manual input.');
     return;
   }
 
@@ -1779,12 +1868,14 @@ async function processField(field, ctx) {
   if (!match || match.value === '' || match.value === null || match.value === undefined) {
     report.unmatched++;
     report.failures.push({ label, kind: field.kind, status: 'unmatched' });
+    addFieldDetail(report, field, 'skipped', 'No unique supported profile match was found.');
     if (!hasUserValue(field)) trackFieldCorrections(field, currentValueOf(field));
     return;
   }
 
   const result = await fillField(field, match);
-  if (recordResult(report, field, result)) {
+  const source = match.type === 'correction' ? 'Learned correction' : 'Profile';
+  if (recordResult(report, field, result, source)) {
     trackFieldCorrections(field, result.value);
     applyHighlight(field.element, 'high');
   }
@@ -1792,10 +1883,6 @@ async function processField(field, ctx) {
 
 /** The full autofill run. */
 async function runAutofill(message) {
-  const requestedDuration = Number(message.preferences && message.preferences.highlightDuration);
-  fpSettings.highlightDuration = Number.isFinite(requestedDuration)
-    ? Math.max(1, Math.min(10, requestedDuration))
-    : 3;
   fpSettings.allowProtectedDemographicAutofill = Boolean(
     message.preferences && message.preferences.allowProtectedDemographicAutofill
   );
@@ -1844,10 +1931,12 @@ async function runAutofill(message) {
     success: true,
     matched: r.filled,
     filled: r.filled,
-    needsReview: Math.max(0, r.noOption + r.noValue + r.deferred + r.failed + r.unsupported + r.unmatched + r.blocked + r.consent),
+    needsReview: Math.max(0, r.noOption + r.ambiguous + r.noValue + r.deferred + r.failed + r.unsupported + r.unmatched + r.blocked + r.consent),
     report: {
+      totalFields: r.totalFields,
       filled: r.filled,
       noOption: r.noOption,
+      ambiguous: r.ambiguous,
       noValue: r.noValue,
       deferred: r.deferred,
       unsupported: r.unsupported,
@@ -1856,7 +1945,8 @@ async function runAutofill(message) {
       consent: r.consent,
       blocked: r.blocked,
       unmatched: r.unmatched,
-      failures: r.failures.slice(0, 25)
+      failures: r.failures.slice(0, 25),
+      details: r.details
     }
   };
 }

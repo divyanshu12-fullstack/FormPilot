@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FormPilot</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="popup-header">
+      <div class="brand-mark" aria-hidden="true">F</div>
+      <div>
+        <h1>FormPilot</h1>
+        <p id="page-host">Checking this page…</p>
+      </div>
+    </header>
+
+    <p class="local-note">
+      Your profile and learned corrections are stored locally in this browser.
+      FormPilot does not upload them to a FormPilot server.
+    </p>
+
+    <button id="fill-button" class="primary-button" type="button" disabled>Fill this page</button>
+    <p id="status" class="status" role="status" aria-live="polite">Checking your profile…</p>
+
+    <section id="result-panel" class="result-panel" aria-labelledby="result-title" hidden>
+      <h2 id="result-title">Fill results</h2>
+      <p id="result-counts" class="result-counts"></p>
+      <ul id="result-details" class="result-details"></ul>
+    </section>
+
+    <footer class="popup-footer">
+      <span>Values go into this page only when you choose to fill.</span>
+      <button id="settings-button" class="text-button" type="button">Profile &amp; settings</button>
+    </footer>
+  </main>
+  <script src="shared/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

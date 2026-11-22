@@ -228,9 +228,9 @@
   <div role="combobox" id="fp_ms_combo" aria-expanded="false" aria-label="Total experience in months" tabindex="0"
        style="display:inline-block; min-width:200px; padding:6px; border:1px solid #b89aad; border-radius:4px;">Choose an item</div>
   <div role="listbox" style="display:none;">
-    <div role="option" data-value="0-1">0-1</div>
-    <div role="option" data-value="2-3">2-3</div>
-    <div role="option" data-value="4+">4+</div>
+    <div role="option" data-value="0-1 months">0-1 months</div>
+    <div role="option" data-value="2-3 months">2-3 months</div>
+    <div role="option" data-value="4+ months">4+ months</div>
   </div>
 </div>
 
@@ -245,8 +245,13 @@
     <input type="datetime-local" id="fp_dt" name="fp_dt">
   </div>
   <div class="row" data-fp-id="month-native">
-    <label for="fp_mo">Graduation month</label><br>
+    <label for="fp_mo">Date of birth month</label><br>
     <input type="month" id="fp_mo" name="fp_mo">
+  </div>
+  <!-- A year-only answer must never fabricate a month for a month control. -->
+  <div class="row" data-fp-id="month-year-only">
+    <label for="fp_grad_mo">Graduation year</label><br>
+    <input type="month" id="fp_grad_mo" name="fp_grad_mo">
   </div>
   <div class="row" data-fp-id="date-ddmmyyyy">
     <div>Date of birth</div>
@@ -265,12 +270,27 @@
     <input type="text" class="flatpickr-input" readonly aria-labelledby="dd-fp-label" placeholder="Select date"
            style="min-width:220px;">
     <div class="flatpickr-calendar" style="display:none; position:absolute; background:#fff; border:1px solid #ae6a97; padding:6px; z-index:60;">
+      <div class="flatpickr-months"><span class="flatpickr-current-month">January 2000</span></div>
+      <div class="flatpickr-days">
+        <span class="flatpickr-day" role="button" data-date="2000-01-15">15</span>
+        <span class="flatpickr-day" role="button" data-date="2000-01-16">16</span>
+        <span class="flatpickr-day" role="button" data-date="2000-01-17">17</span>
+        <span class="flatpickr-day" role="button" data-date="2000-01-18">18</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- A date picker showing a different month must not receive the same day. -->
+<div class="row" data-fp-id="date-flatpickr-wrong-month">
+  <div id="dd-fp-mismatch-label">Date of birth</div>
+  <div class="tpl-dropdown" id="fp_flatpickr_mismatch" data-open="false" style="display:inline-block;">
+    <input type="text" id="fp_flatpickr_mismatch_input" class="flatpickr-input" readonly aria-labelledby="dd-fp-mismatch-label" placeholder="Select date"
+           style="min-width:220px;">
+    <div class="flatpickr-calendar" style="display:none; position:absolute; background:#fff; border:1px solid #b89aad; padding:6px; z-index:60;">
       <div class="flatpickr-months"><span class="flatpickr-current-month">January 2024</span></div>
       <div class="flatpickr-days">
-        <span class="flatpickr-day" role="button" data-date="15">15</span>
-        <span class="flatpickr-day" role="button" data-date="16">16</span>
-        <span class="flatpickr-day" role="button" data-date="17">17</span>
-        <span class="flatpickr-day" role="button" data-date="18">18</span>
+        <span class="flatpickr-day" role="button" data-date="2024-01-15">15</span>
       </div>
     </div>
   </div>
@@ -343,7 +363,7 @@
         opt.addEventListener('click', function (e) {
           e.stopPropagation();
           if (shown.tagName === 'INPUT') {
-            shown.value = opt.textContent.trim();
+            shown.value = opt.getAttribute('data-date') || opt.textContent.trim();
           } else {
             shown.textContent = opt.textContent.trim();
           }

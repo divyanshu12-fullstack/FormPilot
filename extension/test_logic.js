@@ -62,7 +62,9 @@
 
   check('Yes/No from "Yes"', resolveOption(opts('Yes', 'No'), 'Yes', 'work_authorization').option?.text, 'Yes');
   check('Yes/No from "No"', resolveOption(opts('Yes', 'No'), 'No', 'work_authorization').option?.text, 'No');
-  check('affirmative prose', resolveOption(opts('Yes', 'No'), 'Authorized', 'work_authorization').option?.text, 'Yes');
+  check('boolean value maps to explicit Yes/No options', resolveOption(opts('Yes', 'No'), 'true', FIELD_TYPES.WORK_AUTHORIZATION).option?.text, 'Yes');
+  check('inferred affirmative prose is declined', resolveOption(opts('Yes', 'No'), 'Authorized', FIELD_TYPES.WORK_AUTHORIZATION).reason, 'no-option');
+  check('negative phrase never matches positive option', resolveOption(opts('Yes', 'No'), 'not willing', FIELD_TYPES.RELOCATION_OK).reason, 'no-option');
   check(
     'long option phrasing',
     resolveOption(opts('Yes, I am authorized to work', 'No, I will require sponsorship'), 'Yes', 'work_authorization').option?.text,
@@ -81,20 +83,28 @@
   check('"to" range', resolveOption(opts('Fresher', '1 to 3 years', '4+ years'), '2', 'experience_years').option?.text, '1 to 3 years');
   check('"less than" range', resolveOption(opts('Less than 1 year', '1-3 years', '4+ years'), '0', 'experience_years').option?.text, 'Less than 1 year');
   check('"more than" range', resolveOption(opts('0-2 years', 'More than 5'), '7', 'experience_years').option?.text, 'More than 5');
-  check('prefers tightest containing range', resolveOption(opts('0-5', '2-3'), '2.5', 'experience_years').option?.text, '2-3');
-  // With a real gap between the offered ranges there is no safe answer, so we
-  // decline rather than tick the nearest one.
+  check('overlapping ranges are ambiguous', resolveOption(opts('0-5 years', '2-3 years'), '2.5', FIELD_TYPES.EXPERIENCE_YEARS).reason, 'ambiguous');
+  // With a real gap between the offered ranges there is no safe answer.
   check('declines when the value falls in a gap', resolveOption(opts('0-1 years', '5+ years'), '3', 'experience_years').reason, 'no-option');
   check('accepts an off-by-one at the boundary', resolveOption(opts('0-1 years', '2-3 years'), '1', 'experience_years').option?.text, '0-1 years');
-  check('parseRangeFromText 4+', parseRangeFromText('4+'), { min: 4, max: Infinity, isOpenTop: true });
-  check('parseRangeFromText 12th', parseRangeFromText('12th'), { min: 12, max: 12, isOpenTop: false, exact: true });
+  check('months map only into compatible year ranges', resolveOption(opts('0-1 years', '2-3 years', '4+ years'), 24, FIELD_TYPES.TOTAL_EXPERIENCE_MONTHS).option?.text, '2-3 years');
+  check('incompatible duration units are declined', resolveOption(opts('0-1 days', '2-3 days', '4+ days'), 24, FIELD_TYPES.TOTAL_EXPERIENCE_MONTHS).reason, 'no-option');
+  check('parseRangeFromText 4+', parseRangeFromText('4+'), {
+    min: 4, max: Infinity, minInclusive: true, maxInclusive: true,
+    isOpenTop: true, unit: null
+  });
+  check('parseRangeFromText 12th', parseRangeFromText('12th'), {
+    min: 12, max: 12, minInclusive: true, maxInclusive: true,
+    isOpenTop: false, exact: true, unit: 'ordinal'
+  });
   check('parseRangeFromText garbage', parseRangeFromText('United States'), null);
 
   // ══════════════ Ordinals ══════════════
   group('option: ordinals');
 
-  check('First', resolveOption(opts('First', 'Second', 'Third'), '2', null).option?.text, 'Second');
-  check('2nd', resolveOption(opts('1st', '2nd', '3rd'), '3', null).option?.text, '3rd');
+  check('explicit second ordinal', resolveOption(opts('First', 'Second', 'Third'), '2nd', null).option?.text, 'Second');
+  check('bare cardinal is not an ordinal guess', resolveOption(opts('First', 'Second', 'Third'), '2', null).reason, 'no-option');
+  check('explicit 3rd suffix', resolveOption(opts('1st', '2nd', '3rd'), '3rd', null).option?.text, '3rd');
 
   // ══════════════ Abbreviation maps ══════════════
   group('option: abbreviations');
@@ -103,7 +113,7 @@
   check('country code', resolveOption(opts('India', 'United States', 'Germany'), 'US', 'country').option?.text, 'United States');
   check('F -> Female not Male', resolveOption(opts('Male', 'Female'), 'F', 'gender').option?.text, 'Female');
   check('M -> Male', resolveOption(opts('Male', 'Female'), 'M', 'gender').option?.text, 'Male');
-  check('notice period 30 days', resolveOption(opts('Immediate', '30 days', '60 days'), '30', 'notice_period').option?.text, '30 days');
+  check('notice period 30 days', resolveOption(opts('Immediate', '30 days', '60 days'), '30', FIELD_TYPES.NOTICE_PERIOD).option?.text, '30 days');
   check('degree 12th', resolveOption(opts('10th', '12th', 'Graduated'), '12th', 'degree').option?.text, '12th');
 
   // ══════════════ Substring guard ══════════════
@@ -111,7 +121,8 @@
 
   check('male does not match Female', resolveOption(opts('Male', 'Female'), 'male', 'gender').option?.text, 'Male');
   check('short token cannot match', resolveOption(opts('Russia', 'United States'), 'US', 'country').option?.text, 'United States');
-  check('city substring works', resolveOption(opts('Bhopal, Madhya Pradesh', 'Indore'), 'Bhopal', null).option?.text, 'Bhopal, Madhya Pradesh');
+  check('city substring is declined', resolveOption(opts('Bhopal, Madhya Pradesh', 'Indore'), 'Bhopal', null).reason, 'no-option');
+  check('duplicate exact labels are ambiguous', resolveOption(opts('Bhopal', 'Bhopal'), 'Bhopal', null).reason, 'ambiguous');
 
   // ══════════════ Multi-value ══════════════
   group('option: multi-select');
@@ -121,7 +132,8 @@
   check('matches every listed skill it can', multi.options.map(o => o.text), ['JavaScript', 'React']);
   check('reports unmatched entries', multi.unmatched, ['Kotlin']);
   check('never invents a skill', resolveMultipleOptions(skillOpts, 'Kotlin, Rust').options.length, 0);
-  check('no duplicates', resolveMultipleOptions(opts('JS', 'JS'), 'JS, JS').options.length, 1);
+  check('duplicate option labels are declined', resolveMultipleOptions(opts('JS', 'JS'), 'JS').options.length, 0);
+  check('ambiguous list option is reported unmatched', resolveMultipleOptions(opts('JS', 'JS'), 'JS').unmatched, ['JS']);
 
   // ══════════════ Consent detection ══════════════
   group('consent detection');
@@ -161,15 +173,20 @@
 
   check('date control', normalizeDateValue('15/01/2000', FIELD_KIND.DATE, 'dmy'), '2000-01-15');
   check('month control', normalizeDateValue('15/01/2000', FIELD_KIND.MONTH, 'dmy'), '2000-01');
-  check('datetime control', normalizeDateValue('2000-01-15', FIELD_KIND.DATETIME, 'dmy'), '2000-01-15T00:00');
+  check('datetime requires an explicit time', normalizeDateValue('2000-01-15', FIELD_KIND.DATETIME, 'dmy'), null);
+  check('datetime control', normalizeDateValue('2000-01-15T09:30', FIELD_KIND.DATETIME, 'dmy'), '2000-01-15T09:30');
   check('time control', normalizeDateValue('09:30', FIELD_KIND.TIME, 'dmy'), '09:30');
   check('12-hour time', normalizeDateValue('2:30 PM', FIELD_KIND.TIME, 'dmy'), '14:30');
   check('unparseable returns null', normalizeDateValue('sometime in 2000', FIELD_KIND.DATE, 'dmy'), null);
   check('date parts, day-first', normalizeDateValue('15/01/2000', FIELD_KIND.DATE_PARTS, 'dmy'), { dd: '15', mm: '01', yyyy: '2000' });
   check('date parts, month-first', normalizeDateValue('01/15/2000', FIELD_KIND.DATE_PARTS, 'mdy'), { mm: '01', dd: '15', yyyy: '2000' });
 
-  // Ambiguous numeric dates resolve from the placeholder hint.
+  // Ambiguous numeric dates require an explicit format hint.
   check('ambiguous defaults month-first', parseDateParts('01/02/2000').ambiguous, true);
+  check('ambiguous fill abstains without format hint', normalizeDateValue('01/02/2000', FIELD_KIND.DATE, null), null);
+  check('ambiguous fill uses month-first hint', normalizeDateValue('01/02/2000', FIELD_KIND.DATE, 'mdy'), '2000-01-02');
+  check('ambiguous fill uses day-first hint', normalizeDateValue('01/02/2000', FIELD_KIND.DATE, 'dmy'), '2000-02-01');
+  check('impossible calendar date is rejected', normalizeDateValue('2000-02-31', FIELD_KIND.DATE, 'mdy'), null);
   check('day>12 forces d/m/y', parseDateParts('25/01/2000'), { y: 2000, m: 1, d: 25, hh: 0, mm: 0 });
   check('month>12 forces m/d/y', parseDateParts('01/25/2000'), { y: 2000, m: 1, d: 25, hh: 0, mm: 0 });
 

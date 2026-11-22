@@ -1,20 +1,4 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  async function getLocalStorage(defaults) {
-    if (globalThis.browser) return globalThis.browser.storage.local.get(defaults);
-    return new Promise(resolve => globalThis.chrome.storage.local.get(defaults, resolve));
-  }
-
-  async function setLocalStorage(values) {
-    if (globalThis.browser) return globalThis.browser.storage.local.set(values);
-    return new Promise((resolve, reject) => {
-      globalThis.chrome.storage.local.set(values, () => {
-        const error = globalThis.chrome.runtime.lastError;
-        if (error) reject(new Error(error.message || 'Extension storage failed'));
-        else resolve();
-      });
-    });
-  }
-
   const profileForm = document.getElementById('profile-form');
   const profileStatus = document.getElementById('profile-status');
   const learnedBadge = document.getElementById('learned-count-badge');
@@ -30,13 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!element) return;
     element.textContent = message;
     element.className = `status-msg ${type}`.trim();
-  }
-
-  function setTheme(theme) {
-    const resolved = theme === 'system'
-      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : theme;
-    document.documentElement.setAttribute('data-theme', resolved);
   }
 
   async function loadProfile() {
@@ -96,46 +73,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Local appearance and autofill preferences
-  const themeToggle = document.getElementById('theme-toggle');
-  const highlightSlider = document.getElementById('highlight-slider');
-  const highlightValue = document.getElementById('highlight-val');
+  // Local privacy preferences
   const demographicToggle = document.getElementById('demographic-autofill-toggle');
 
   try {
-    const [stored, preferences] = await Promise.all([
-      getLocalStorage({ theme: 'system' }),
-      FormPilotStore.loadPreferences()
-    ]);
-    setTheme(stored.theme);
-    themeToggle.checked = stored.theme === 'dark';
-    const duration = Number(preferences.highlightDuration ?? 3);
-    highlightSlider.value = Number.isFinite(duration) ? Math.max(1, Math.min(10, duration)) : 3;
-    highlightValue.textContent = `${highlightSlider.value}s`;
+    const preferences = await FormPilotStore.loadPreferences();
     demographicToggle.checked = preferences.allowProtectedDemographicAutofill === true;
-  } catch (error) {
-    setTheme('light');
-  }
-
-  themeToggle.addEventListener('change', async event => {
-    const theme = event.target.checked ? 'dark' : 'light';
-    await setLocalStorage({ theme });
-    setTheme(theme);
-  });
+  } catch (error) { /* default remains off */ }
 
   async function savePreferences() {
     const current = await FormPilotStore.loadPreferences();
     await FormPilotStore.savePreferences({
       ...current,
-      highlightDuration: Number(highlightSlider.value),
       allowProtectedDemographicAutofill: demographicToggle.checked
     });
   }
 
-  highlightSlider.addEventListener('input', () => {
-    highlightValue.textContent = `${highlightSlider.value}s`;
-  });
-  highlightSlider.addEventListener('change', () => savePreferences().catch(() => {}));
   demographicToggle.addEventListener('change', () => savePreferences().catch(() => {}));
 
   // Locally stored learned corrections

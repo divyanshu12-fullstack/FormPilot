@@ -17,7 +17,10 @@
       "strict_min_version": "121.0"
     }
   },
-  "action": {},
+  "action": {
+    "default_title": "Fill this page with FormPilot",
+    "default_popup": "popup.html"
+  },
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true

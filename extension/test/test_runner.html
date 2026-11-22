@@ -49,7 +49,7 @@ const PROFILE = {
   address_line1: '12 Nehru Road', city: 'Bhopal', state: 'Madhya Pradesh',
   pincode: '462003', country: 'India',
   dob: '2000-01-15', cgpa: '9.01/10.00',
-  degree: 'B.Tech', branch: 'Computer Science', college_name: 'VIT',
+  degree: 'B.Tech', branch: 'Computer Science', college_name: 'VIT Bhopal',
   graduation_year: '2024', tenth_percent: '92', twelfth_percent: '94',
   current_title: 'Frontend Developer', current_company: 'Acme Corp',
   experience_years: 2, total_experience_months: 24, notice_period_days: 30,
@@ -135,13 +135,15 @@ const EXPECTATIONS = [
   // Google / MS Forms markup
   { g: 'Google/MS Forms', n: 'GForms [data-params] label resolution', want: 'ada@example.com', read: () => inputVal('fp_gf_email') },
   { g: 'Google/MS Forms', n: 'div-based role=radio gets clicked', want: 'Female', read: () => ariaRadioValue('Gender') },
-  { g: 'Google/MS Forms', n: 'MS combobox: 24 months picks "4+" (specific keyword wins)', want: '4+', read: () => (Q('[role="combobox"][aria-label="Total experience in months"]') || {}).textContent },
+  { g: 'Google/MS Forms', n: 'MS combobox matches 24 months to an explicitly month-based range', want: '4+ months', read: () => (Q('[role="combobox"][aria-label="Total experience in months"]') || {}).textContent },
 
   // Calendar
   { g: 'Calendar', n: 'type=date gets a normalised ISO value', want: '2000-01-15', read: () => inputVal('fp_dob') },
-  { g: 'Calendar', n: 'type=month gets YYYY-MM', want: '2024-01', read: () => inputVal('fp_mo') },
+  { g: 'Calendar', n: 'type=month gets YYYY-MM', want: '2000-01', read: () => inputVal('fp_mo') },
+  { g: 'Calendar safety', n: 'type=month stays blank when only a year is known', want: '', read: () => inputVal('fp_grad_mo') },
   { g: 'Calendar', n: 'separate dd/mm/yyyy boxes', want: '15/01/2000', read: () => dateParts() },
-  { g: 'Calendar', n: 'readonly flatpickr input driven via its popup', want: '15', read: () => { const el = Q('.flatpickr-input'); return el ? el.value : '(missing)'; } },
+  { g: 'Calendar', n: 'readonly flatpickr input only selects the displayed target date', want: '2000-01-15', read: () => { const el = Q('.flatpickr-input'); return el ? el.value : '(missing)'; } },
+  { g: 'Calendar safety', n: 'does not select the same day in the wrong year', want: '', read: () => inputVal('fp_flatpickr_mismatch_input') },
   { g: 'Calendar', n: 'a non-date value is refused, not written as junk', want: '(left empty)', read: () => inputVal('fp_dt') || '(left empty)' },
 
   // Conditional / iterative passes
@@ -194,7 +196,6 @@ function runAutofill(win, allowProtectedDemographicAutofill = true) {
     if (!handler) { reject(new Error('content script did not register a message handler')); return; }
     // Mirror runtime.onMessage: (message, sender, sendResponse).
     handler({ action: 'autofill', profile: PROFILE, corrections: [], preferences: {
-      highlightDuration: 1,
       allowProtectedDemographicAutofill
     } }, { id: 'harness' }, resolve);
     setTimeout(() => reject(new Error('autofill timed out after 40s')), 40000);
