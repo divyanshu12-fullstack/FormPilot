@@ -8,7 +8,10 @@
 
 const FormPilotAPI = globalThis.browser || globalThis.chrome;
 const HIGHLIGHT_DURATION_MS = 2200;
-let fpSettings = { allowProtectedDemographicAutofill: false };
+const IS_TAB_TOP_FRAME = window.top === window.self;
+const FRAME_CHANNEL = 'formpilot-frame';
+const FRAME_REPLY_TIMEOUT_MS = 10000;
+
 
 const MAX_AUTOFILL_PASSES = 4;
 const DOM_SETTLE_MS = 450;
@@ -1169,20 +1172,108 @@ function collectFields() {
 }
 
 // ═══════════════════════════════════════
-// IFRAME WARNING
+// EMBEDDED FRAMES
 // ═══════════════════════════════════════
 
-function checkForIframes() {
-  const iframes = document.querySelectorAll('iframe');
-  let crossOriginCount = 0;
-  for (const iframe of iframes) {
-    try { iframe.contentDocument; }
-    catch { crossOriginCount++; }
+// Only same-origin frames can be reached: the extension holds no host
+// permissions, so a cross-origin frame never receives the content script.
+function embeddedFrames() {
+  const windows = [];
+  let crossOrigin = 0;
+  for (const frame of document.querySelectorAll('iframe, frame')) {
+    let win = null;
+    try {
+      win = frame.contentWindow;
+      void frame.contentDocument;
+    } catch (error) {
+      crossOrigin++;
+      continue;
+    }
+    if (win) windows.push(win);
   }
-  if (crossOriginCount > 0) {
-    console.warn(`[FormPilot] ${crossOriginCount} cross-origin iframe(s) detected. Fields inside them cannot be accessed.`);
-  }
+  return { windows, crossOrigin };
 }
+function requestFrame(win, id, action, payload) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onReply);
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const onReply = event => {
+      if (event.source !== win) return;
+      const data = event.data;
+      if (!data || data.__formpilot !== FRAME_CHANNEL) return;
+      if (data.kind !== 'reply' || data.id !== id) return;
+      finish(data.ok ? data.result : null);
+    };
+    const timer = setTimeout(() => finish(null), FRAME_REPLY_TIMEOUT_MS);
+    window.addEventListener('message', onReply);
+    try {
+      win.postMessage({ __formpilot: FRAME_CHANNEL, kind: 'request', id, action, payload }, '*');
+    } catch (error) {
+      finish(null);
+    }
+  });
+}
+
+async function relayToEmbeddedFrames(id, action, payload) {
+  const { windows, crossOrigin } = embeddedFrames();
+  if (!windows.length) return { results: [], unreachable: crossOrigin };
+  const results = await Promise.all(windows.map(win => requestFrame(win, id, action, payload)));
+  let unreachable = crossOrigin;
+  for (const result of results) {
+    if (!result) unreachable++;
+  }
+  return { results, unreachable };
+}
+
+const REPORT_COUNTERS = [
+  'totalFields', 'filled', 'ambiguous', 'noOption', 'noValue', 'deferred',
+  'unsupported', 'skipped', 'failed', 'consent', 'blocked', 'unmatched'
+];
+
+function mergeReports(reports) {
+  const merged = makeReport();
+  for (const report of reports) {
+    if (!report) continue;
+    for (const key of REPORT_COUNTERS) merged[key] += Number(report[key]) || 0;
+    for (const failure of report.failures || []) merged.failures.push(failure);
+    for (const detail of report.details || []) {
+      if (merged.details.length < 50) merged.details.push(detail);
+    }
+  }
+  merged.failures = merged.failures.slice(0, 25);
+  return merged;
+}
+
+function reportPayload(report) {
+  return {
+    totalFields: report.totalFields,
+    filled: report.filled,
+    noOption: report.noOption,
+    ambiguous: report.ambiguous,
+    noValue: report.noValue,
+    deferred: report.deferred,
+    unsupported: report.unsupported,
+    skipped: report.skipped,
+    failed: report.failed,
+    consent: report.consent,
+    blocked: report.blocked,
+    unmatched: report.unmatched,
+    failures: report.failures.slice(0, 25),
+    details: report.details
+  };
+}
+
+function needsReviewCount(report) {
+  return Math.max(0, report.noOption + report.ambiguous + report.noValue + report.deferred
+    + report.failed + report.unsupported + report.unmatched + report.blocked + report.consent);
+}
+
 
 // ═══════════════════════════════════════
 // MATCHING LOGIC
@@ -1690,12 +1781,6 @@ function isSensitiveField(label) {
   return false;
 }
 
-function isProtectedDemographicField(label) {
-  const normalized = normalizeLabel(label);
-  return PROTECTED_DEMOGRAPHIC_KEYWORDS.some(keyword =>
-    labelHasToken(normalized, normalizeLabel(keyword)));
-}
-
 function sendCorrection(label, value) {
   const send = globalThis.browser
     ? globalThis.browser.runtime.sendMessage
@@ -1845,12 +1930,9 @@ async function processField(field, ctx) {
   }
   const passwordField = field.element && field.element.type === 'password';
   const sensitiveField = isSensitiveField(label) || passwordField;
-  const demographicField = isProtectedDemographicField(label) && !fpSettings.allowProtectedDemographicAutofill;
-  if (sensitiveField || demographicField) {
+  if (sensitiveField) {
     report.blocked++;
-    addFieldDetail(report, field, 'skipped', sensitiveField
-      ? 'Sensitive fields are never autofilled.'
-      : 'Demographic autofill is disabled in Settings.');
+    addFieldDetail(report, field, 'skipped', 'Sensitive fields are never autofilled.');
     return;
   }
   if (field.isConsent) {
@@ -1883,10 +1965,6 @@ async function processField(field, ctx) {
 
 /** The full autofill run. */
 async function runAutofill(message) {
-  fpSettings.allowProtectedDemographicAutofill = Boolean(
-    message.preferences && message.preferences.allowProtectedDemographicAutofill
-  );
-
   const ctx = {
     profile: message.profile || {},
     corrections: Array.isArray(message.corrections) ? message.corrections : [],
@@ -1931,24 +2009,146 @@ async function runAutofill(message) {
     success: true,
     matched: r.filled,
     filled: r.filled,
-    needsReview: Math.max(0, r.noOption + r.ambiguous + r.noValue + r.deferred + r.failed + r.unsupported + r.unmatched + r.blocked + r.consent),
-    report: {
-      totalFields: r.totalFields,
-      filled: r.filled,
-      noOption: r.noOption,
-      ambiguous: r.ambiguous,
-      noValue: r.noValue,
-      deferred: r.deferred,
-      unsupported: r.unsupported,
-      skipped: r.skipped,
-      failed: r.failed,
-      consent: r.consent,
-      blocked: r.blocked,
-      unmatched: r.unmatched,
-      failures: r.failures.slice(0, 25),
-      details: r.details
-    }
+    needsReview: needsReviewCount(r),
+    report: reportPayload(r)
   };
+}
+
+// ═══════════════════════════════════════
+// DETECTION — report what could be filled, without changing the page
+// ═══════════════════════════════════════
+
+function detectPageFields(message) {
+  const profile = message.profile || {};
+  const corrections = Array.isArray(message.corrections) ? message.corrections : [];
+  let supportedFields = 0;
+  let matchedFields = 0;
+
+  for (const field of collectFields()) {
+    const label = fieldLabelOf(field);
+    if (!label) continue;
+    if (field.element && field.element.type === 'password') continue;
+    if (isSensitiveField(label)) continue;
+    if (field.isConsent) continue;
+    if (field.kind === FIELD_KIND.FILE) continue;
+
+    supportedFields++;
+    const match = matchField(field, profile, corrections);
+    if (match && match.value !== '' && match.value !== null && match.value !== undefined) {
+      matchedFields++;
+    }
+  }
+
+  return { success: true, supportedFields, matchedFields };
+}
+
+// ═══════════════════════════════════════
+// FRAME ORCHESTRATION
+// The tab's top frame coordinates the work; embedded frames fill their own
+// document and answer their parent.
+// ═══════════════════════════════════════
+
+function frameSessionId() {
+  return `fp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function relayPayload(message) {
+  return {
+    profile: message.profile || {},
+    corrections: Array.isArray(message.corrections) ? message.corrections : []
+  };
+}
+
+function collectChildResults(children, reports) {
+  let unreachable = children.unreachable;
+  for (const result of children.results) {
+    if (!result) continue;
+    if (result.report) reports.push(result.report);
+    unreachable += Number(result.unreachableFrames) || 0;
+  }
+  return unreachable;
+}
+
+async function runAutofillEverywhere(message) {
+  const local = await runAutofill(message);
+  const children = await relayToEmbeddedFrames(frameSessionId(), 'autofill', relayPayload(message));
+  const reports = [local.report];
+  const unreachable = collectChildResults(children, reports);
+  const merged = mergeReports(reports);
+  return {
+    success: true,
+    matched: merged.filled,
+    filled: merged.filled,
+    needsReview: needsReviewCount(merged),
+    report: reportPayload(merged),
+    unreachableFrames: unreachable
+  };
+}
+
+async function detectEverywhere(message) {
+  const local = detectPageFields(message);
+  const children = await relayToEmbeddedFrames(frameSessionId(), 'detect', relayPayload(message));
+  let supportedFields = local.supportedFields;
+  let matchedFields = local.matchedFields;
+  let unreachable = children.unreachable;
+  for (const result of children.results) {
+    if (!result) continue;
+    supportedFields += Number(result.supportedFields) || 0;
+    matchedFields += Number(result.matchedFields) || 0;
+    unreachable += Number(result.unreachableFrames) || 0;
+  }
+  return { success: true, supportedFields, matchedFields, unreachableFrames: unreachable };
+}
+
+// A child frame fills its own document, relays the same request to its own
+// children, and answers its parent with the combined result.
+async function handleFrameRequest(request) {
+  const payload = request.payload || {};
+  if (request.action === 'autofill') {
+    const local = await runAutofill({ profile: payload.profile, corrections: payload.corrections });
+    const children = await relayToEmbeddedFrames(request.id, 'autofill', payload);
+    const reports = [local.report];
+    const unreachable = collectChildResults(children, reports);
+    const merged = mergeReports(reports);
+    return {
+      success: true,
+      report: reportPayload(merged),
+      unreachableFrames: unreachable
+    };
+  }
+  if (request.action === 'detect') {
+    const local = detectPageFields({ profile: payload.profile, corrections: payload.corrections });
+    const children = await relayToEmbeddedFrames(request.id, 'detect', payload);
+    let supportedFields = local.supportedFields;
+    let matchedFields = local.matchedFields;
+    let unreachable = children.unreachable;
+    for (const result of children.results) {
+      if (!result) continue;
+      supportedFields += Number(result.supportedFields) || 0;
+      matchedFields += Number(result.matchedFields) || 0;
+      unreachable += Number(result.unreachableFrames) || 0;
+    }
+    return { success: true, supportedFields, matchedFields, unreachableFrames: unreachable };
+  }
+  return null;
+}
+
+if (!IS_TAB_TOP_FRAME) {
+  window.addEventListener('message', async event => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.__formpilot !== FRAME_CHANNEL || data.kind !== 'request') return;
+    const reply = { __formpilot: FRAME_CHANNEL, kind: 'reply', id: data.id, ok: false, result: null };
+    try {
+      reply.result = await handleFrameRequest(data);
+      reply.ok = Boolean(reply.result);
+    } catch (error) {
+      reply.error = error.message;
+    }
+    try {
+      window.parent.postMessage(reply, '*');
+    } catch (error) { /* the parent went away */ }
+  });
 }
 
 // ═══════════════════════════════════════
@@ -1956,12 +2156,30 @@ async function runAutofill(message) {
 // ═══════════════════════════════════════
 
 FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'ping') {
+    sendResponse({ formpilot: true });
+    return false;
+  }
+
+  // Only the tab's top frame answers toolbar messages. Embedded frames are
+  // reached through the frame relay instead.
+  if (!IS_TAB_TOP_FRAME) return false;
+
+  if (message.action === 'detect') {
+    detectEverywhere(message).then(result => {
+      sendResponse(result);
+    }).catch(err => {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
   if (message.action === 'autofill') {
     if (!message.profile) {
       sendResponse({ success: false, error: 'No profile data received.' });
       return true;
     }
-    runAutofill(message).then(result => {
+    runAutofillEverywhere(message).then(result => {
       sendResponse(result);
     }).catch(err => {
       console.error('[FormPilot] Autofill failed:', err);
@@ -1982,5 +2200,4 @@ FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   currentPlatform = detectPlatform();
   injectHighlightStyles();
   collectFields();
-  checkForIframes();
 })();

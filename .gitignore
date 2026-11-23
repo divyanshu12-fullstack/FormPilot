@@ -1,16 +1,10 @@
 # FormPilot — root gitignore
 .formpilot-roadmap.md
-backend/.env
-backend/venv/
-backend/.venv/
-backend/__pycache__/
-backend/*.pyc
-backend/formpilot.db
+# Store packages and unpacked builds
+dist/
 node_modules/
 
-# Local DB backup taken before the profile-schema migration
-backend/formpilot.db.bak
 # Verification scripts (run manually, not part of the extension)
-backend/scratch/
 improvements.md
 interview.md
+.opencode

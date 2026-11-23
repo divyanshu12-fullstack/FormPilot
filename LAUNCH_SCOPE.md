@@ -36,7 +36,7 @@ FormPilot is a local-first, user-triggered form autofiller. It fills supported f
 - Autofill only after an explicit user action on the current page.
 - Never overwrite a non-empty value the user entered.
 - Never infer or automatically fill sensitive credentials, financial identifiers, government IDs, or legally significant answers.
-- Protected demographic fields, if retained, require explicit user opt-in before autofill.
+- Saved demographic values (for example gender or veteran status) fill only as part of an explicit user-initiated fill, like any other profile field.
 - Fill only when the field and value have one clear, supported match. Otherwise skip and report why.
 - Verify each attempted fill against the control's resulting value or selected state. Do not report an unverified attempt as successful.
 - FormPilot does not submit the form.

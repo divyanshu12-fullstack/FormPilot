@@ -9,11 +9,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   const learnedStatus = document.getElementById('learned-status-msg');
   const clearAllLearnedBtn = document.getElementById('clear-all-learned-btn');
   const dataStatus = document.getElementById('data-status-msg');
+  const saveBar = document.getElementById('save-bar');
+  const completionFill = document.getElementById('profile-progress-fill');
+  const completionCount = document.getElementById('profile-progress-count');
+  const completionBar = document.getElementById('profile-progress-bar');
+
+  const CORE_FIELDS = [
+    'first_name', 'last_name', 'email', 'phone', 'dob', 'gender',
+    'address_line1', 'city', 'state', 'pincode', 'country',
+    'degree', 'branch', 'college_name', 'graduation_year',
+    'skills', 'languages',
+    'current_title', 'current_company', 'experience_years', 'work_authorization'
+  ];
 
   function showStatus(element, message, type = '') {
     if (!element) return;
     element.textContent = message;
     element.className = `status-msg ${type}`.trim();
+  }
+
+  function updateCompletion() {
+    if (!completionCount) return;
+    const total = CORE_FIELDS.length;
+    const filled = CORE_FIELDS.filter(name => {
+      const field = profileForm.elements.namedItem(name);
+      return field && String(field.value || '').trim() !== '';
+    }).length;
+    completionCount.textContent = `${filled} of ${total}`;
+    completionBar.setAttribute('aria-valuemax', String(total));
+    completionBar.setAttribute('aria-valuenow', String(filled));
+    completionFill.style.width = `${Math.round((filled / total) * 100)}%`;
   }
 
   async function loadProfile() {
@@ -29,24 +54,98 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadProfile();
   } catch (error) {
     showStatus(profileStatus, 'Could not load profile data.', 'error');
+    saveBar.classList.add('visible');
   }
+  updateCompletion();
 
   // Navigation
   const navButtons = Array.from(document.querySelectorAll('.nav-btn'));
   const panes = Array.from(document.querySelectorAll('.tab-pane'));
   navButtons.forEach(button => button.addEventListener('click', () => {
-    navButtons.forEach(item => item.classList.toggle('active', item === button));
+    navButtons.forEach(item => {
+      const active = item === button;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-current', active ? 'page' : 'false');
+    });
     panes.forEach(pane => pane.classList.toggle('active', pane.id === button.dataset.tab));
     if (button.dataset.tab === 'tab-learned') loadLearnedData();
   }));
 
+  // Section rail
+  const railLinks = Array.from(document.querySelectorAll('.rail-link'));
+  const railSections = railLinks
+    .map(link => document.getElementById(link.dataset.rail))
+    .filter(Boolean);
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setActiveRail(id) {
+    railLinks.forEach(link => link.classList.toggle('active', link.dataset.rail === id));
+  }
+
+  if (railSections.length && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries
+        .filter(entry => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible.length) setActiveRail(visible[0].target.id);
+    }, { rootMargin: '-76px 0px -55% 0px', threshold: 0 });
+    railSections.forEach(section => observer.observe(section));
+  }
+
+  railLinks.forEach(link => link.addEventListener('click', event => {
+    event.preventDefault();
+    const target = document.getElementById(link.dataset.rail);
+    if (!target) return;
+    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    setActiveRail(link.dataset.rail);
+  }));
+
+  // Dialogs
+  const privacyDialog = document.getElementById('privacy-dialog');
+  const aboutDialog = document.getElementById('about-dialog');
+  document.getElementById('open-privacy-btn').addEventListener('click', () => privacyDialog.showModal());
+  document.getElementById('open-about-btn').addEventListener('click', () => aboutDialog.showModal());
+  [privacyDialog, aboutDialog].forEach(dialog => {
+    dialog.addEventListener('click', event => {
+      if (event.target === dialog) dialog.close();
+    });
+  });
+
   // Profile persistence
-  profileForm.addEventListener('input', () => showStatus(profileStatus, 'Unsaved changes'));
-  profileForm.addEventListener('change', () => showStatus(profileStatus, 'Unsaved changes'));
+  const saveProfileBtn = document.getElementById('save-profile-btn');
+  let profileDirty = false;
+  let saveBarTimer = null;
+
+  function setProfileDirty(dirty) {
+    profileDirty = dirty;
+    saveProfileBtn.disabled = !dirty;
+    if (dirty) {
+      clearTimeout(saveBarTimer);
+      saveBar.classList.add('visible');
+    }
+  }
+
+  function flashSaveBar() {
+    clearTimeout(saveBarTimer);
+    saveBar.classList.add('visible');
+    saveBarTimer = setTimeout(() => {
+      if (!profileDirty) saveBar.classList.remove('visible');
+    }, 3200);
+  }
+
+  function markDirty() {
+    setProfileDirty(true);
+    showStatus(profileStatus, 'Unsaved changes', 'pending');
+    updateCompletion();
+  }
+
+  profileForm.addEventListener('input', markDirty);
+  profileForm.addEventListener('change', markDirty);
   profileForm.addEventListener('submit', async event => {
     event.preventDefault();
-    const button = document.getElementById('save-profile-btn');
+    const button = saveProfileBtn;
     button.disabled = true;
+    button.classList.add('loading');
     button.textContent = 'Saving…';
 
     const values = Object.fromEntries(new FormData(profileForm).entries());
@@ -64,37 +163,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       await FormPilotStore.saveProfile(values);
-      showStatus(profileStatus, 'Profile saved in this browser.', 'success');
+      setProfileDirty(false);
+      showStatus(profileStatus, 'Saved to this browser.', 'success');
+      flashSaveBar();
     } catch (error) {
-      showStatus(profileStatus, 'Could not save profile.', 'error');
-    } finally {
+      showStatus(profileStatus, 'Could not save profile. Try again.', 'error');
       button.disabled = false;
-      button.textContent = 'Save Profile';
+      saveBar.classList.add('visible');
+    } finally {
+      button.classList.remove('loading');
+      button.textContent = 'Save profile';
+      if (!profileDirty) button.disabled = true;
     }
   });
 
-  // Local privacy preferences
-  const demographicToggle = document.getElementById('demographic-autofill-toggle');
-
-  try {
-    const preferences = await FormPilotStore.loadPreferences();
-    demographicToggle.checked = preferences.allowProtectedDemographicAutofill === true;
-  } catch (error) { /* default remains off */ }
-
-  async function savePreferences() {
-    const current = await FormPilotStore.loadPreferences();
-    await FormPilotStore.savePreferences({
-      ...current,
-      allowProtectedDemographicAutofill: demographicToggle.checked
-    });
-  }
-
-  demographicToggle.addEventListener('change', () => savePreferences().catch(() => {}));
+  setProfileDirty(false);
 
   // Locally stored learned corrections
   let learnedData = [];
 
   async function loadLearnedData() {
+    showStatus(learnedStatus, 'Loading…', 'pending');
     try {
       learnedData = await FormPilotStore.loadCorrections();
       renderLearnedTable();
@@ -111,7 +200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       || item.field_label.toLowerCase().includes(filter)
       || item.corrected_value.toLowerCase().includes(filter));
 
-    learnedBadge.textContent = `${learnedData.length} learned field${learnedData.length === 1 ? '' : 's'}`;
+    learnedBadge.textContent = `${learnedData.length} correction${learnedData.length === 1 ? '' : 's'}`;
     learnedBody.replaceChildren();
     learnedTable.style.display = learnedData.length ? 'table' : 'none';
     learnedEmptyState.style.display = learnedData.length ? 'none' : 'block';
@@ -131,7 +220,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     for (const item of entries) {
       const row = document.createElement('tr');
-      row.appendChild(textCell(item.domain));
+      row.appendChild(siteCell(item.domain));
       row.appendChild(textCell(item.field_label));
 
       const valueCell = document.createElement('td');
@@ -143,21 +232,59 @@ document.addEventListener('DOMContentLoaded', async () => {
       actionCell.className = 'actions-cell';
       const actions = document.createElement('div');
       actions.className = 'action-group';
-      const editButton = document.createElement('button');
-      editButton.type = 'button';
-      editButton.className = 'btn-icon edit-btn';
-      editButton.textContent = 'Edit';
+      const editButton = iconButton(PENCIL_ICON, 'Edit correction');
       editButton.addEventListener('click', () => editCorrection(item, valueCell, editButton));
-      const deleteButton = document.createElement('button');
-      deleteButton.type = 'button';
-      deleteButton.className = 'btn-icon delete-btn';
-      deleteButton.textContent = 'Delete';
+      const deleteButton = iconButton(TRASH_ICON, 'Delete correction');
+      deleteButton.classList.add('delete-btn');
       deleteButton.addEventListener('click', () => deleteCorrection(item));
       actions.append(editButton, deleteButton);
       actionCell.appendChild(actions);
       row.appendChild(actionCell);
       learnedBody.appendChild(row);
     }
+  }
+
+  const PENCIL_ICON = '<path d="M4.5 19.5h3l10-10a2.1 2.1 0 0 0-3-3l-10 10v3Z"/><path d="M13.8 7.2l3 3"/>';
+  const TRASH_ICON = '<path d="M4.5 7h15"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M6.5 7l.8 11.2a1.8 1.8 0 0 0 1.8 1.8h5.8a1.8 1.8 0 0 0 1.8-1.8L17.5 7"/>';
+  const CHECK_ICON = '<path d="m5 12.5 4.5 4.5L19 7.5"/>';
+
+  function iconPathElement(path) {
+    const element = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    element.setAttribute('d', path);
+    return element;
+  }
+
+  function iconButton(path, label) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.75');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.appendChild(iconPathElement(path));
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn-icon';
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.appendChild(svg);
+    return button;
+  }
+
+  function siteCell(domain) {
+    const cell = document.createElement('td');
+    const wrap = document.createElement('span');
+    wrap.className = 'site-cell';
+    const dot = document.createElement('span');
+    dot.className = 'site-dot';
+    wrap.append(dot, document.createTextNode(domain));
+    cell.appendChild(wrap);
+    return cell;
   }
 
   function textCell(text) {
@@ -174,7 +301,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       FormPilotStore.updateCorrection(item.domain, item.field_label, updatedValue)
         .then(loadLearnedData)
         .then(() => showStatus(learnedStatus, 'Correction updated.', 'success'))
-        .catch(() => showStatus(learnedStatus, 'Could not update correction.', 'error'));
+        .catch(() => {
+          resetEditButton(button);
+          showStatus(learnedStatus, 'Could not update correction.', 'error');
+        });
       return;
     }
 
@@ -185,8 +315,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     cell.replaceChildren(input);
     input.focus();
     input.select();
-    button.textContent = 'Save';
+    button.innerHTML = '';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.75');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.appendChild(iconPathElement(CHECK_ICON));
+    button.appendChild(svg);
+    button.classList.add('save-btn');
+    button.setAttribute('aria-label', 'Save correction');
+    button.title = 'Save correction';
     button.dataset.editing = 'true';
+  }
+
+  function resetEditButton(button) {
+    button.innerHTML = '';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.75');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.appendChild(iconPathElement(PENCIL_ICON));
+    button.appendChild(svg);
+    button.classList.remove('save-btn');
+    button.setAttribute('aria-label', 'Edit correction');
+    button.title = 'Edit correction';
+    button.dataset.editing = 'false';
   }
 
   async function deleteCorrection(item) {
@@ -244,6 +409,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       await FormPilotStore.importData(JSON.parse(await file.text()));
       profileForm.reset();
       await loadProfile();
+      setProfileDirty(false);
+      updateCompletion();
       await loadLearnedData();
       showStatus(dataStatus, 'Backup imported.', 'success');
     } catch (error) {
@@ -256,6 +423,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       await FormPilotStore.clearUserData();
       profileForm.reset();
+      setProfileDirty(false);
+      updateCompletion();
+      showStatus(profileStatus, '');
       await loadLearnedData();
       showStatus(dataStatus, 'Profile and learned data deleted.', 'success');
     } catch (error) {

@@ -1,48 +1,87 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  const extensionApi = globalThis.browser || globalThis.chrome;
-  const hostElement = document.getElementById('page-host');
-  const fillButton = document.getElementById('fill-button');
-  const statusElement = document.getElementById('status');
-  const resultPanel = document.getElementById('result-panel');
-  const resultCounts = document.getElementById('result-counts');
-  const resultDetails = document.getElementById('result-details');
+  const api = globalThis.browser || globalThis.chrome;
+  const els = {
+    host: document.getElementById('page-host'),
+    card: document.getElementById('status-card'),
+    title: document.getElementById('status-title'),
+    detail: document.getElementById('status-detail'),
+    fill: document.getElementById('fill-button'),
+    secondary: document.getElementById('secondary-button'),
+    panel: document.getElementById('result-panel'),
+    counts: document.getElementById('result-counts'),
+    details: document.getElementById('result-details'),
+    progress: document.getElementById('progress-line')
+  };
 
-  function setStatus(message) {
-    statusElement.textContent = message;
+  function openSettings() {
+    api.runtime.openOptionsPage();
+  }
+
+  function setState(state, title, detail, options = {}) {
+    els.card.dataset.state = state;
+    els.title.textContent = title;
+    els.detail.textContent = detail;
+
+    els.fill.hidden = true;
+    els.fill.disabled = false;
+    els.fill.onclick = null;
+
+    els.secondary.hidden = true;
+    els.secondary.onclick = null;
+
+    if (options.primary) {
+      els.fill.hidden = false;
+      els.fill.textContent = options.primary.label;
+      els.fill.onclick = options.primary.onClick;
+    }
+    if (options.secondary) {
+      els.secondary.hidden = false;
+      els.secondary.textContent = options.secondary.label;
+      els.secondary.onclick = options.secondary.onClick;
+    }
   }
 
   function renderResult(result) {
-    resultPanel.hidden = false;
-    resultDetails.replaceChildren();
     const report = result.report || {};
     const total = Number(report.totalFields) || 0;
     const filled = Number(report.filled) || 0;
-    const skipped = Math.max(0, total - filled - (Number(report.failed) || 0));
     const failed = Number(report.failed) || 0;
-    resultCounts.textContent = `${filled} filled · ${skipped} skipped · ${failed} failed`;
+    const skipped = Math.max(0, total - filled - failed);
+
+    els.panel.hidden = false;
+    els.details.replaceChildren();
+
+    els.counts.replaceChildren();
+    els.counts.appendChild(countChip(filled, 'filled', 'chip-success'));
+    if (skipped > 0) els.counts.appendChild(countChip(skipped, 'skipped', 'chip'));
+    if (failed > 0) els.counts.appendChild(countChip(failed, 'failed', 'chip-danger'));
 
     const details = Array.isArray(report.details) ? report.details : [];
     if (!details.length) {
-      const empty = document.createElement('li');
-      empty.textContent = total === 0
+      const note = document.createElement('li');
+      note.className = 'empty-note';
+      note.textContent = total === 0
         ? 'No supported form fields were found on this page.'
         : 'No field details are available.';
-      resultDetails.appendChild(empty);
-      return;
+      els.details.appendChild(note);
     }
 
     for (const item of details) {
       const row = document.createElement('li');
       const line = document.createElement('div');
       line.className = 'detail-line';
+
       const label = document.createElement('span');
       label.className = 'detail-label';
       label.textContent = item.label || 'Unlabeled field';
+
       const state = document.createElement('span');
-      state.className = 'detail-status';
+      state.className = `detail-status ${item.status}`;
       state.textContent = item.status === 'filled' ? 'Filled' : item.status === 'failed' ? 'Failed' : 'Skipped';
+
       line.append(label, state);
       row.appendChild(line);
+
       if (item.reason) {
         const reason = document.createElement('div');
         reason.className = 'detail-reason';
@@ -55,60 +94,137 @@ document.addEventListener('DOMContentLoaded', async () => {
         source.textContent = `Source: ${item.source}`;
         row.appendChild(source);
       }
-      resultDetails.appendChild(row);
+      els.details.appendChild(row);
+    }
+
+    const unreachable = Number(result.unreachableFrames) || 0;
+    if (unreachable > 0) {
+      const note = document.createElement('li');
+      note.className = 'empty-note';
+      note.textContent = `${unreachable} embedded frame${unreachable === 1 ? '' : 's'} could not be reached (cross-origin or blocked). Fill those manually.`;
+      els.details.appendChild(note);
     }
 
     if (details.length === 50 && total > details.length) {
       const more = document.createElement('li');
-      more.textContent = `Showing first ${details.length} fields.`;
-      resultDetails.appendChild(more);
+      more.className = 'empty-note';
+      more.textContent = `Showing the first ${details.length} fields.`;
+      els.details.appendChild(more);
     }
   }
 
-  try {
-    const tabs = await extensionApi.tabs.query({ active: true, currentWindow: true });
-    const tab = tabs && tabs[0];
-    const pageUrl = tab && tab.url ? new URL(tab.url) : null;
-    hostElement.textContent = pageUrl && ['http:', 'https:'].includes(pageUrl.protocol)
-      ? pageUrl.hostname
-      : 'This page cannot be filled';
-
-    const profile = await FormPilotStore.loadProfile();
-    const hasProfileValue = Object.values(profile).some(value => Array.isArray(value)
-      ? value.length > 0
-      : value !== null && value !== undefined && String(value).trim() !== '');
-    if (!hasProfileValue) {
-      setStatus('Add profile details before filling a form.');
-    } else if (!pageUrl || !['http:', 'https:'].includes(pageUrl.protocol)) {
-      setStatus('Open a regular web page to use autofill.');
-    } else {
-      fillButton.disabled = false;
-      setStatus('Review the page, then choose Fill this page.');
-    }
-  } catch (error) {
-    setStatus('Could not read your local profile. Open Profile & settings to check it.');
+  function countChip(value, label, className) {
+    const chip = document.createElement('span');
+    chip.className = className;
+    chip.textContent = `${value} ${label}`;
+    return chip;
   }
 
-  fillButton.addEventListener('click', async () => {
-    fillButton.disabled = true;
-    setStatus('Checking fields and filling safe matches…');
-    resultPanel.hidden = true;
+  async function fillPage() {
+    els.fill.disabled = true;
+    els.fill.textContent = 'Filling…';
+    els.panel.hidden = true;
+    els.progress.classList.add('active');
+
+    let next;
     try {
-      const result = await extensionApi.runtime.sendMessage({ action: 'run_autofill' });
+      const result = await api.runtime.sendMessage({ action: 'run_autofill' });
       if (!result || !result.success) {
-        setStatus(result && result.error ? result.error : 'FormPilot could not fill this page.');
-        return;
+        next = {
+          state: 'blocked',
+          title: 'Could not fill this page',
+          detail: (result && result.error) || 'Try reloading the page and try again.'
+        };
+      } else {
+        renderResult(result);
+        const filled = Number(result.report && result.report.filled) || 0;
+        next = {
+          state: 'done',
+          title: filled ? `Filled ${filled} field${filled === 1 ? '' : 's'}` : 'Nothing was filled',
+          detail: 'Review the results before submitting the form.',
+          primary: { label: 'Fill again', onClick: fillPage }
+        };
       }
-      renderResult(result);
-      setStatus('Review the results before submitting the form.');
     } catch (error) {
-      setStatus('FormPilot could not access this page. Check the site permission and try again.');
-    } finally {
-      fillButton.disabled = false;
+      next = {
+        state: 'blocked',
+        title: 'Could not fill this page',
+        detail: 'FormPilot could not access this page. Try reloading it.'
+      };
     }
-  });
+    els.progress.classList.remove('active');
+    setState(next.state, next.title, next.detail, next);
+  }
 
-  document.getElementById('settings-button').addEventListener('click', () => {
-    extensionApi.runtime.openOptionsPage();
-  });
+  async function init() {
+    let url = null;
+    try {
+      const tabs = await api.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs && tabs[0];
+      url = tab && tab.url ? new URL(tab.url) : null;
+    } catch (error) { /* treat as unsupported */ }
+
+    const supportedProtocol = Boolean(url) && ['http:', 'https:'].includes(url.protocol);
+    els.host.textContent = supportedProtocol ? url.hostname : 'Current page';
+
+    let hasProfile = false;
+    try {
+      const profile = await FormPilotStore.loadProfile();
+      hasProfile = Object.values(profile).some(value => Array.isArray(value)
+        ? value.length > 0
+        : value !== null && value !== undefined && String(value).trim() !== '');
+    } catch (error) { /* treat as empty */ }
+
+    if (!hasProfile) {
+      setState('warn', 'Set up your profile first', 'Add your details so FormPilot knows what to fill.', {
+        primary: { label: 'Set up profile', onClick: openSettings }
+      });
+      return;
+    }
+
+    if (!supportedProtocol) {
+      setState('blocked', "Can't fill this page", 'FormPilot cannot access this page. Try a regular webpage instead.');
+      return;
+    }
+
+    setState('loading', 'Checking this page…', 'Looking for fields FormPilot can fill.');
+
+    let detection = null;
+    try {
+      detection = await api.runtime.sendMessage({ action: 'detect_fields' });
+    } catch (error) { detection = null; }
+
+    if (!detection || !detection.success) {
+      setState('blocked', "Can't fill this page", 'FormPilot could not inspect this page. Try reloading it.');
+      return;
+    }
+
+    const supported = Number(detection.supportedFields) || 0;
+    const matched = Number(detection.matchedFields) || 0;
+    const unreachable = Number(detection.unreachableFrames) || 0;
+
+    if (supported === 0 && unreachable > 0) {
+      setState('warn', 'Some embedded frames are out of reach', `FormPilot could not inspect ${unreachable} embedded frame${unreachable === 1 ? '' : 's'} on this page.`);
+      return;
+    }
+
+    if (supported === 0) {
+      setState('warn', 'No supported fields found', "This page doesn't appear to contain any fields FormPilot can fill.");
+      return;
+    }
+
+    if (matched === 0) {
+      setState('warn', 'Nothing to fill yet', "Your saved information doesn't match the fields on this page.", {
+        secondary: { label: 'Edit profile', onClick: openSettings }
+      });
+      return;
+    }
+
+    setState('ready', 'Ready to fill', 'FormPilot found supported fields on this page.', {
+      primary: { label: 'Fill this page', onClick: fillPage }
+    });
+  }
+
+  document.getElementById('settings-button').addEventListener('click', openSettings);
+  await init();
 });

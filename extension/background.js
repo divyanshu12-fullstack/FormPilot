@@ -13,7 +13,28 @@ const CONTENT_FILES = [
   'content_script.js'
 ];
 
+async function hasContentScript(tabId) {
+  try {
+    const response = await FormPilotAPI.tabs.sendMessage(tabId, { action: 'ping' });
+    return Boolean(response && response.formpilot);
+  } catch (error) {
+    return false;
+  }
+}
+
 async function injectContentScript(tabId) {
+  try {
+    // allFrames reaches same-origin embedded forms. Cross-origin frames are
+    // skipped because the extension holds no host permissions for them.
+    await FormPilotAPI.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      files: CONTENT_FILES
+    });
+    return;
+  } catch (error) {
+    // One blocked frame can fail the whole call; fall back to the top frame.
+    if (await hasContentScript(tabId)) return;
+  }
   await FormPilotAPI.scripting.executeScript({
     target: { tabId },
     files: CONTENT_FILES
@@ -39,10 +60,9 @@ async function setTabBadge(tabId, text) {
 }
 
 async function runAutofill(tab) {
-  const [profile, allCorrections, preferences] = await Promise.all([
+  const [profile, allCorrections] = await Promise.all([
     FormPilotStore.loadProfile(),
-    FormPilotStore.loadCorrections(),
-    FormPilotStore.loadPreferences()
+    FormPilotStore.loadCorrections()
   ]);
   let domain = '';
   try { domain = new URL(tab.url || '').hostname.toLowerCase(); } catch (error) { /* unsupported page */ }
@@ -59,8 +79,7 @@ async function runAutofill(tab) {
   const result = await messageTab(tab.id, {
     action: 'autofill',
     profile,
-    corrections,
-    preferences
+    corrections
   });
 
   if (!result || !result.success) {
@@ -69,6 +88,23 @@ async function runAutofill(tab) {
   }
   await setTabBadge(tab.id, result.report && result.report.filled ? result.report.filled : '');
   return result;
+}
+
+async function detectFields(tab) {
+  const [profile, allCorrections] = await Promise.all([
+    FormPilotStore.loadProfile(),
+    FormPilotStore.loadCorrections()
+  ]);
+  let domain = '';
+  try { domain = new URL(tab.url || '').hostname.toLowerCase(); } catch (error) { /* unsupported page */ }
+  const corrections = allCorrections.filter(item => item.domain === domain);
+
+  const result = await messageTab(tab.id, {
+    action: 'detect',
+    profile,
+    corrections
+  });
+  return { success: true, ...(result || {}) };
 }
 
 function correctionDomain(sender) {
@@ -89,6 +125,18 @@ FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const tab = tabs && tabs[0];
         if (!tab || typeof tab.id !== 'number') throw new Error('No active page is available.');
         return runAutofill(tab);
+      })
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.action === 'detect_fields') {
+    FormPilotAPI.tabs.query({ active: true, currentWindow: true })
+      .then(tabs => {
+        const tab = tabs && tabs[0];
+        if (!tab || typeof tab.id !== 'number') throw new Error('No active page is available.');
+        return detectFields(tab);
       })
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));

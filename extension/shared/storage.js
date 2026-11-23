@@ -2,7 +2,7 @@
 (function (root) {
   const PROFILE_KEY = 'formpilotProfile';
   const CORRECTIONS_KEY = 'formpilotCorrections';
-  const PREFERENCES_KEY = 'formpilotPreferences';
+  const LEGACY_PREFERENCES_KEY = 'formpilotPreferences';
   const DATA_VERSION = 1;
   const api = root.browser || root.chrome;
 
@@ -97,19 +97,7 @@
   }
 
   async function clearUserData() {
-    await storageCall('remove', [PROFILE_KEY, CORRECTIONS_KEY]);
-  }
-
-  async function loadPreferences() {
-    const values = await storageCall('get', PREFERENCES_KEY);
-    const preferences = values && values[PREFERENCES_KEY];
-    return preferences && typeof preferences === 'object' && !Array.isArray(preferences)
-      ? preferences
-      : {};
-  }
-
-  async function savePreferences(preferences) {
-    await storageCall('set', { [PREFERENCES_KEY]: preferences });
+    await storageCall('remove', [PROFILE_KEY, CORRECTIONS_KEY, LEGACY_PREFERENCES_KEY]);
   }
 
   async function exportData() {
@@ -147,7 +135,6 @@
   root.FormPilotStore = {
     PROFILE_KEY,
     CORRECTIONS_KEY,
-    PREFERENCES_KEY,
     loadProfile,
     saveProfile,
     loadCorrections,
@@ -156,8 +143,6 @@
     deleteCorrection,
     clearCorrections,
     clearUserData,
-    loadPreferences,
-    savePreferences,
     exportData,
     importData
   };

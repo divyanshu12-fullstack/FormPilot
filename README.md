@@ -1,120 +1,187 @@
-# ✈️ FormPilot
+<img src="extension/icons/icon-128.png" alt="FormPilot" width="96" align="right">
 
-**A local-first, privacy-respecting, AI-powered form autofiller for Chrome.**
+# FormPilot
 
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-local%20storage-003B57?logo=sqlite&logoColor=white)
-![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
+**A local-first form autofiller for Edge and Firefox.**
 
-FormPilot fills out placement applications, hackathon registrations, and college forms automatically — resolving most fields locally in under 5ms, and calling an LLM only for the fields it genuinely can't figure out on its own. Every piece of your data, from your resume to your corrections, stays in a SQLite database on your own machine.
+FormPilot fills the fields it can match with certainty — names, email, phone, education,
+skills, work history — and leaves everything else alone for you to review. Your profile
+never leaves your browser: there is no backend, no account, and no network request.
 
 ---
 
-## Table of Contents
+## Table of contents
 
-- [Why This Exists](#why-this-exists)
-- [How It Works](#how-it-works)
-  - [Heuristic-First Cascade](#heuristic-first-cascade-5ms-fully-local)
-  - [3-Phase Interactive AI System](#3-phase-interactive-ai-system)
-  - [Token-Efficient Resume Parsing](#token-efficient-resume-parsing)
-  - [Corrections Learning Loop](#corrections-learning-loop)
-  - [Confidence Marking](#confidence-marking)
-  - [Handling Google & Microsoft Forms](#handling-google--microsoft-forms)
-- [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
+- [Why it exists](#why-it-exists)
+- [What it does](#what-it-does)
+- [Safety contract](#safety-contract)
 - [Privacy](#privacy)
-- [Roadmap](#roadmap)
+- [Install](#install)
+- [How to use it](#how-to-use-it)
+- [How matching works](#how-matching-works)
+- [Supported fields and pages](#supported-fields-and-pages)
+- [Project layout](#project-layout)
+- [Development](#development)
+- [Limitations](#limitations)
+- [Status](#status)
 
 ---
 
-## Why This Exists
+## Why it exists
 
-As a final-year student, I was retyping the same information — name, education, experience — into placement applications, hackathon registrations, and college event forms, every single day. Windows had no equivalent to the native autofill mobile operating systems ship with by default, so I built one.
+Placements, hackathons, and college forms all ask the same dozen questions in slightly
+different wording. Retyping them is tedious and error-prone, and generic browser autofill
+usually cannot map "Branch" or "CGPA" to anything useful.
 
-What started as a simple regex-based field matcher has grown into a hybrid system: resume parsing, a local-first heuristic cascade, and a token-conscious LLM fallback reserved only for fields that are genuinely ambiguous.
+FormPilot does one narrow thing well: it matches a form field to a value **you** saved,
+and only when there is exactly one sensible match.
 
-## How It Works
+## What it does
 
-### Heuristic-First Cascade (<5ms, fully local)
+- **Profile-based filling.** Save your details once in the options page; FormPilot fills
+  matching fields whenever you ask it to.
+- **Learned corrections.** When you correct a field FormPilot got wrong, it remembers that
+  correction for that site and uses it next time.
+- **Honest results.** The popup reports what was filled, skipped and failed, and why —
+  per field.
+- **Privacy and data controls.** Export a backup, import one, or delete everything stored
+  in the browser.
+- **Works offline.** The extension makes no network requests at all.
 
-When you click **Autofill**, every field passes through four local checks before an LLM is ever considered:
+## Safety contract
 
-1. **Corrections DB check** — has the user manually corrected this field label before?
-2. **Signature DB check** — does it match a known ATS element ID (e.g., `applicant_email`)?
-3. **Exact label match** — does it match a profile schema key directly?
-4. **Keyword & abbreviation mapping** — central maps handle variants like `"US"` → `"United States"`, `"F"` → `"Female"`.
+- Fills only after an explicit action you take on the current page.
+- Never overwrites a value you already entered.
+- Never fills credentials, payment details, government IDs or similar sensitive fields.
+- Never ticks a consent, agreement or attestation checkbox.
+- Fills only when a field has one clear, supported match; anything ambiguous is skipped
+  and reported.
+- Verifies every attempted fill against the control's resulting value, and rolls back if
+  the value did not stick.
+- Never submits a form.
 
-This resolves roughly **85% of standard form fields instantly**, without a single call to an external API. If every field on a form is already covered by stored data, the extension skips the LLM request entirely rather than making a wasted call.
-
-### 3-Phase Interactive AI System
-
-The first version fully automated anything the local database couldn't resolve, sending it straight to an LLM in the background. In practice, this wasted tokens and occasionally hallucinated answers to deeply personal questions (e.g., *"Why did your grades drop?"*). It was redesigned into three phases:
-
-1. **Instant Static Fill** — every determinable field fills immediately from the local database, with zero LLM calls and zero latency.
-2. **Inline AI Assist ("Sparkle" UI)** — a subtle ✨ icon appears on any unfilled, ambiguous field. Clicking it opens a small dialog where you can give brief guidance (e.g., *"mention my health issues in semester 4"*), and the LLM is invoked only for that one field.
-3. **Opt-in Speed Mode** — a toggle for power users who'd rather skip the Sparkle UI and let the extension auto-draft every remaining field in the background.
-
-### Token-Efficient Resume Parsing
-
-Instead of re-sending the raw resume file to the LLM on every form fill, FormPilot makes **one** LLM call at upload time to convert the parsed resume into structured JSON, stored alongside the profile. Every autofill afterward reuses that structured data — the LLM only ever sees form labels and schema keys, never raw resume text or private values. This cut per-upload token usage from **12K+ tokens down to under 10K** across 5+ form fills.
-
-### Corrections Learning Loop
-
-Some fields — a CGPA, a registration number — don't exist in any resume or profile schema, and no LLM can invent them. Corrections close that gap: if you manually fill an empty field, the extension detects the change, saves it to a local Corrections DB, and fills it automatically the next time that field appears — no LLM call needed.
-
-### Confidence Marking
-
-Filled fields are color-coded so you know what's safe to trust and what's worth a second look:
-
-| Color | Meaning |
-|---|---|
-| 🟢 Green | Filled deterministically from the local DB |
-| 🟡 Plum/Yellow | LLM-mapped to existing profile or resume data |
-| 🔵 Blue | Fully custom, LLM-drafted response |
-
-### Handling Google & Microsoft Forms
-
-Google Forms and Microsoft Forms don't use plain `<input>` elements — they're built from deeply nested, dynamically rendered `<div>` structures. FormPilot uses **seven fallback strategies** to identify fields correctly: `label-for`, `aria-label`, `aria-labelledby`, wrapping label, proximity walk, and placeholder — falling back to spatial matching as a last resort when everything else fails.
-
-## Tech Stack
-
-- **Extension:** Manifest V3, vanilla HTML/CSS/JS — no React, no bundler overhead, for instant load times and the smallest possible footprint
-- **Backend:** FastAPI + SQLite3
-- **Resume parsing:** `pdfplumber`, `python-docx` (chosen over Node.js equivalents for reliability on real-world resumes)
-- **LLM layer:** OpenRouter, invoked only when local heuristics can't confidently resolve a field
-
-## Getting Started
-
-### Prerequisites
-
-- [Python 3.10+](https://www.python.org/downloads/)
-- [uv](https://github.com/astral-sh/uv) — fast Python package installer and resolver
-
-### 1. Start the Backend
-
-```bash
-cd backend
-uv run uvicorn main:app --reload --host 127.0.0.1 --port 8420
-```
-
-Press `Ctrl+C` in the terminal at any time to stop the server.
-
-### 2. Load the Extension in Chrome
-
-1. Open Chrome and navigate to `chrome://extensions/`
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked** and select the `extension` folder from this repository
-4. Pin the FormPilot icon to your toolbar
+Saved demographic values (gender, marital status, veteran status, disability status) are
+treated like any other profile field: they fill only as part of a fill you start.
 
 ## Privacy
 
-All data — resumes, profile fields, corrections — lives in a local SQLite database on your machine. The only data that ever leaves your device is the minimum context needed for an LLM to map an ambiguous form label to a schema key; raw personal values are never sent as part of that request.
+- Profile and corrections live in `browser.storage.local` — in your browser profile, on
+  your machine. They are not encrypted by the browser, and the UI says so.
+- The extension has no backend, no analytics, no telemetry and no outbound network
+  requests. The only permissions it asks for are `storage`, `activeTab` and `scripting`,
+  all of which are needed to read your saved profile and fill the page in front of you.
+- Deleting your data in *Privacy & data* removes the profile and every learned
+  correction from the browser.
 
-## Roadmap
+## Install
 
-- **Fully offline mode** via local, WebGPU-accelerated transformer models — no API key required.
+### Edge (Chromium)
 
----
+1. Open `edge://extensions`.
+2. Turn on **Developer mode**.
+3. Choose **Load unpacked** and select the `extension` folder from this repository.
 
-Built to help students and professionals get through repetitive forms faster, so you can focus on what actually matters.
+### Firefox
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Choose **Load Temporary Add-on…** and pick `extension/manifest.json`.
+
+Firefox 142 or newer is required. The store builds are produced by `scripts/package.js`.
+
+### Chrome
+
+Chrome support is planned and can be turned on on demand — the extension already uses the
+shared WebExtensions API surface that Chrome supports, so it is a packaging question
+rather than a rewrite.
+
+## How to use it
+
+1. Open the options page (click the toolbar icon, then **Profile & settings**) and fill
+   in the details you want FormPilot to use.
+2. Press **Save profile**. The data is written to this browser only.
+3. Open the form you want to fill and click the FormPilot toolbar icon.
+4. The popup tells you what it found: ready to fill, nothing to fill, no supported fields,
+   or a page it cannot touch.
+5. Press **Fill this page**, then review the highlighted fields before you submit. The
+   popup lists every field it filled, skipped or failed, with the reason.
+
+## How matching works
+
+For each field, in order:
+
+1. **Learned corrections** — did you correct this label on this site before?
+2. **Field signatures** — known element names used by applicant tracking systems.
+3. **Exact label match** — the label matches a profile key directly.
+4. **Keyword and alias maps** — reviewed variants such as `F` → `Female` or `US` →
+   `United States`.
+
+The first match with one clear answer wins. If two profile fields could answer a label,
+or the saved value has no counterpart in the control's options, the field is skipped and
+the reason is shown.
+
+## Supported fields and pages
+
+| Category | Covered |
+| --- | --- |
+| Inputs | text, textarea, email, tel, url, number |
+| Dates | `date`, `month`, `time`, `datetime-local`, separate day/month/year boxes, flatpickr-style readonly inputs |
+| Choices | `select`, multi-select, radio groups, checkbox groups, custom dropdowns |
+| Pages | Standard HTML forms, Google Forms, Microsoft Forms, Select2, Bootstrap selects, MUI selects, shadow DOM, same-origin iframes |
+
+## Project layout
+
+```
+extension/            The extension itself
+  background.js       Service worker (Chromium) / event page (Firefox)
+  content_script.js   Page scanning, matching, verified filling, frame relay
+  options.*           Profile, learned corrections, privacy and data
+  popup.*             Page-state detection and fill results
+  shared/             constants, matching rules, widgets, storage
+  icons/              Brand mark and generated PNG sizes
+  test/               Fixtures and test harnesses
+scripts/
+  generate-icons.js   Rasterizes icons/icon.svg into PNGs
+  package.js          Builds the Edge and Firefox store packages
+dist/                 Generated packages (not committed)
+```
+
+## Development
+
+```bash
+# Logic tests
+node extension/test/run_logic_tests.js
+
+# Storage tests
+node extension/test/run_storage_tests.js
+
+# DOM integration tests (needs a static server on port 8899)
+python -m http.server 8899
+node extension/test/run_dom_tests.js 'http://127.0.0.1:8899/extension/test/test_runner.html?autorun=1'
+
+# Edge smoke test (loads the extension unpacked)
+node extension/test/run_edge_extension_smoke.js
+
+# Regenerate the PNG icons from extension/icons/icon.svg
+node scripts/generate-icons.js
+
+# Build both store packages into dist/
+node scripts/package.js
+
+# Lint the Firefox package (requires Node and network access)
+npx web-ext lint --source-dir dist/staging/firefox
+```
+
+## Limitations
+
+- Cross-origin iframes cannot be reached; FormPilot reports them instead of guessing.
+- There is no resume parsing, no AI mapping and no auto-draft mode.
+- Ambiguous fields are skipped on purpose — a blank field is easier to fix than a wrong one.
+- The extension fills controls it understands; unusual custom widgets can be skipped.
+
+## Status
+
+- Core filling, matching, corrections and storage: complete and covered by tests.
+- Edge and Firefox packages build cleanly; the Firefox package passes `web-ext lint`
+  with no errors or warnings.
+- Store submission and the final visual pass in Firefox are still ahead.
+- Chrome is planned, on demand.

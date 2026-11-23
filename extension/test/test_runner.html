@@ -104,6 +104,12 @@ function shadowCity() {
   const sel = root.querySelector('#fp_shadow_city');
   return sel ? sel.value : '(missing)';
 }
+function iframeEmail() {
+  const host = T('fp_iframe');
+  const doc = host && host.contentDocument;
+  const el = doc && doc.getElementById('if_email');
+  return el ? el.value : '(missing)';
+}
 
 /* ── Expectations ── */
 const EXPECTATIONS = [
@@ -154,7 +160,7 @@ const EXPECTATIONS = [
 
   // Reach
   { g: 'Reach', n: 'select inside an open shadow root', want: 'Bhopal', read: () => shadowCity() },
-  { g: 'Reach', n: 'same-origin iframe', want: '—', read: () => '—', manual: true }
+  { g: 'Reach', n: 'same-origin iframe', want: 'ada@example.com', read: () => iframeEmail() }
 ];
 
 /* ── Harness ── */
@@ -190,14 +196,29 @@ async function injectScripts(win) {
   }
 }
 
-function runAutofill(win, allowProtectedDemographicAutofill = true) {
+// The tab's top frame coordinates the fill, so every same-origin frame of the
+// page needs the content script.
+async function prepareFrame(win) {
+  installWebExtensionStub(win);
+  await injectScripts(win);
+  for (const frame of win.document.querySelectorAll('iframe, frame')) {
+    let child = null;
+    try {
+      child = frame.contentWindow;
+      void frame.contentDocument;
+    } catch (error) {
+      continue;
+    }
+    if (child) await prepareFrame(child);
+  }
+}
+
+function runAutofillHarness(win) {
   return new Promise((resolve, reject) => {
     const handler = win.__fpHandler;
     if (!handler) { reject(new Error('content script did not register a message handler')); return; }
     // Mirror runtime.onMessage: (message, sender, sendResponse).
-    handler({ action: 'autofill', profile: PROFILE, corrections: [], preferences: {
-      allowProtectedDemographicAutofill
-    } }, { id: 'harness' }, resolve);
+    handler({ action: 'autofill', profile: PROFILE, corrections: [] }, { id: 'harness' }, resolve);
     setTimeout(() => reject(new Error('autofill timed out after 40s')), 40000);
   });
 }
@@ -216,13 +237,10 @@ async function runSuite() {
   sum.className = '';
   rows.innerHTML = '';
 
-  const win = frame.contentWindow;
-  installWebExtensionStub(win);
-
   let report = null, error = null;
   try {
-    await injectScripts(win);
-    report = await runAutofill(win);
+    await prepareFrame(window);
+    report = await runAutofillHarness(window);
   } catch (e) {
     error = e;
   }
@@ -254,31 +272,6 @@ async function runSuite() {
       '<td><code>' + actual + '</code></td>';
     rows.appendChild(tr);
   }
-
-  // The normal suite opts in so demographic matching is testable. Verify the
-  // safe default separately after clearing those choices.
-  for (const radio of QA('input[type="radio"][name="fp_gender"], input[type="radio"][name="fp_marital"]')) {
-    radio.checked = false;
-  }
-  for (const radio of QA('[role="radio"]')) radio.setAttribute('aria-checked', 'false');
-  let safetyReport = null;
-  try {
-    safetyReport = await runAutofill(win, false);
-  } catch (e) {
-    error = e;
-  }
-  const blockedCount = safetyReport && safetyReport.report ? safetyReport.report.blocked : 0;
-  const demographicSkipped = blockedCount >= 3
-    && !radioValue('fp_gender') && !radioValue('fp_marital')
-    && ariaRadioValue('Gender') === '';
-  const safetyRow = document.createElement('tr');
-  safetyRow.className = demographicSkipped ? 'ok' : 'no';
-  safetyRow.dataset.result = demographicSkipped ? 'PASS' : 'FAIL';
-  safetyRow.innerHTML = '<td>' + (demographicSkipped ? 'PASS' : 'FAIL') + '</td>' +
-    '<td>Safety</td><td>Demographics stay blank unless explicitly enabled</td>' +
-    '<td><code>blocked ' + blockedCount + ' fields</code></td>';
-  rows.appendChild(safetyRow);
-  if (demographicSkipped) pass++; else fail++;
 
   const r = (report && report.report) || {};
   sum.textContent = pass + ' passed, ' + fail + ' failed' + (manual ? ', ' + manual + ' manual' : '') +

@@ -187,7 +187,10 @@ const FIELD_SIGNATURES = {
   'notice_period': FIELD_TYPES.NOTICE_PERIOD,
   'skills': FIELD_TYPES.SKILLS,
   'languages': FIELD_TYPES.LANGUAGES,
-  'gender': FIELD_TYPES.GENDER
+  'gender': FIELD_TYPES.GENDER,
+  'marital_status': FIELD_TYPES.MARITAL_STATUS,
+  'veteran_status': FIELD_TYPES.VETERAN_STATUS,
+  'disability_status': FIELD_TYPES.DISABILITY_STATUS
 };
 
 // Curated aliases. An alias is applied only when it identifies one option.
@@ -668,12 +671,6 @@ const SENSITIVE_FIELD_KEYWORDS = [
   'security pin', 'secret', 'token',
   'otp', 'verification code',
   'aadhaar', 'aadhar', 'pan number', 'passport number'
-];
-
-// Optional demographic values require a separate, explicit user preference.
-const PROTECTED_DEMOGRAPHIC_KEYWORDS = [
-  'gender', 'sex', 'race', 'ethnicity', 'disability', 'veteran',
-  'marital status', 'religion', 'sexual orientation'
 ];
 
 // Section headings that turn a bare checkbox into an "I agree" consent box.

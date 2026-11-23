@@ -4,8 +4,8 @@
 // normalization, consent detection, and label utilities.
 //
 // Runs two ways:
-//   • Browser — open test_logic.html
-//   • Node    — node test_logic.js
+//   • Browser — open extension/test/test_logic.html
+//   • Node    — node extension/test/run_logic_tests.js
 // No framework, no dependencies.
 
 (function () {

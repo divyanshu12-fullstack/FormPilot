@@ -12,7 +12,7 @@ const sandbox = { console, module: { exports: {} } };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
-for (const file of ['shared/constants.js', 'shared/matching.js', 'test_logic.js']) {
+for (const file of ['shared/constants.js', 'shared/matching.js', 'test/test_logic.js']) {
   const code = fs.readFileSync(path.join(ext, file), 'utf8');
   vm.runInContext(code, sandbox, { filename: file });
 }

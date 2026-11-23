@@ -2,295 +2,452 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>FormPilot Settings</title>
+  <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <div class="app-container">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">FormPilot</div>
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 128 128" width="18" height="18" fill="currentColor">
+            <rect x="32" y="24" width="17" height="80" rx="8.5"/>
+            <rect x="32" y="24" width="64" height="17" rx="8.5"/>
+            <rect x="32" y="56" width="40" height="16" rx="8"/>
+            <rect x="80" y="56" width="16" height="16" rx="8"/>
+          </svg>
+        </span>
+        <span class="brand-name">FormPilot</span>
       </div>
-      <nav class="sidebar-nav">
-        <button class="nav-btn active" data-tab="tab-profile">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-          Profile
-        </button>
-        <button class="nav-btn" data-tab="tab-learned">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-          Learned Data
-        </button>
-        <button class="nav-btn" data-tab="tab-preferences">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-          Privacy &amp; Data
-        </button>
-        <button class="nav-btn" data-tab="tab-about">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-          About
-        </button>
+
+      <nav class="app-nav" aria-label="Primary">
+        <button type="button" class="nav-btn active" data-tab="tab-profile" aria-current="page">Profile</button>
+        <button type="button" class="nav-btn" data-tab="tab-learned" aria-current="false">Learned data</button>
       </nav>
-      <div class="sidebar-footer">
-        <span>Local to this browser · no FormPilot account or server</span>
+
+      <div class="app-actions">
+        <button type="button" class="icon-btn" id="open-privacy-btn" aria-label="Privacy and data" title="Privacy and data">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6L12 3Z"/>
+          </svg>
+        </button>
+        <button type="button" class="icon-btn" id="open-about-btn" aria-label="About FormPilot" title="About FormPilot">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M12 11v5"/>
+            <path d="M12 7.6h.01"/>
+          </svg>
+        </button>
       </div>
-    </aside>
+    </div>
+  </header>
 
-    <!-- Main Content -->
-    <main class="main-content">
-      
-      <!-- Profile Tab -->
-      <section id="tab-profile" class="tab-pane active">
-        <header class="tab-header">
-          <h2>Your profile</h2>
-          <p>Save the details you want FormPilot to use on supported forms.</p>
-        </header>
-        <aside class="local-data-notice" role="note">
-          <strong>Stored locally in this browser.</strong> Your profile and learned corrections are not uploaded to a FormPilot server.
-          When you choose to fill a page, matching values are placed into that page; the site receives them if you submit its form.
-        </aside>
-        <div class="content-card">
-          <form id="profile-form">
-            
-            <fieldset>
-              <legend>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                Contact
-              </legend>
-              <div class="form-grid">
-                <div class="form-group"><label>First Name</label><input type="text" name="first_name"></div>
-                <div class="form-group"><label>Last Name</label><input type="text" name="last_name"></div>
-                <div class="form-group"><label>Email</label><input type="email" name="email"></div>
-                <div class="form-group"><label>Phone</label><input type="text" name="phone"></div>
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                Location
-              </legend>
-              <div class="form-grid">
-                <div class="form-group full-width"><label>Address Line 1</label><input type="text" name="address_line1" placeholder="e.g. 123 Main St"></div>
-                <div class="form-group"><label>City</label><input type="text" name="city" placeholder="e.g. Bhopal"></div>
-                <div class="form-group"><label>State</label><input type="text" name="state" placeholder="e.g. Madhya Pradesh"></div>
-                <div class="form-group"><label>Pincode / Zip</label><input type="text" name="pincode" placeholder="e.g. 462003"></div>
-                <div class="form-group"><label>Country</label><input type="text" name="country" placeholder="e.g. India"></div>
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-                Professional Links
-              </legend>
-              <div class="form-grid">
-                <div class="form-group">
-                  <label>LinkedIn URL</label>
-                  <svg class="input-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
-                  <input type="text" name="linkedin_url" class="has-icon" placeholder="https://linkedin.com/in/...">
-                </div>
-                <div class="form-group">
-                  <label>GitHub URL</label>
-                  <svg class="input-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-                  <input type="text" name="github_url" class="has-icon" placeholder="https://github.com/...">
-                </div>
-                <div class="form-group full-width">
-                  <label>Portfolio URL</label>
-                  <svg class="input-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-                  <input type="text" name="portfolio_url" class="has-icon" placeholder="https://...">
-                </div>
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
-                Work Details
-              </legend>
-              <div class="form-grid">
-                <div class="form-group"><label>Current Title</label><input type="text" name="current_title"></div>
-                <div class="form-group"><label>Current Company</label><input type="text" name="current_company"></div>
-                <div class="form-group"><label>Years of Experience</label><input type="number" name="experience_years" step="0.5" min="0"></div>
-                <div class="form-group"><label>Total Experience (months)</label><input type="number" name="total_experience_months" min="0" placeholder="e.g. 24"></div>
-                <div class="form-group"><label>Notice Period (days)</label><input type="number" name="notice_period_days" min="0" placeholder="e.g. 30"></div>
-                <div class="form-group"><label>Preferred Location</label><input type="text" name="preferred_location" placeholder="e.g. Bhopal"></div>
-                <div class="form-group"><label>Work Authorised to Work</label>
-                  <select name="work_authorization">
-                    <option value="">Not set</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </div>
-                <div class="form-group"><label>Willing to Relocate</label>
-                  <select name="relocation_ok">
-                    <option value="">Not set</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </div>
-                <div class="form-group"><label>Open to Remote Work</label>
-                  <select name="remote_work_ok">
-                    <option value="">Not set</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </div>
-                <div class="form-group"><label>Gender</label>
-                  <select name="gender">
-                    <option value="">Prefer not to say</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>
-                Education
-              </legend>
-              <div class="form-grid">
-                <div class="form-group"><label>Date of Birth</label><input type="date" name="dob"></div>
-                <div class="form-group"><label>Graduation Year</label><input type="text" name="graduation_year" inputmode="numeric" placeholder="e.g. 2024"></div>
-                <div class="form-group"><label>Degree</label><input type="text" name="degree" placeholder="e.g. B.Tech"></div>
-                <div class="form-group"><label>Branch / Specialisation</label><input type="text" name="branch" placeholder="e.g. Computer Science"></div>
-                <div class="form-group"><label>College / University</label><input type="text" name="college_name" placeholder="e.g. VIT Bhopal"></div>
-                <div class="form-group"><label>CGPA</label><input type="text" name="cgpa" placeholder="e.g. 9.01/10.00"></div>
-                <div class="form-group"><label>10th Percentage</label><input type="text" name="tenth_percent" placeholder="e.g. 92"></div>
-                <div class="form-group"><label>12th Percentage</label><input type="text" name="twelfth_percent" placeholder="e.g. 94"></div>
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: text-bottom; margin-right: 6px;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-                Skills &amp; Languages
-              </legend>
-              <p class="field-hint" style="font-size: 12px; margin: 0 0 10px; color: var(--text-muted);">
-                Comma-separated. Only used to tick matching options in "select all that apply" questions — nothing is ever guessed.
-              </p>
-              <div class="form-grid">
-                <div class="form-group full-width"><label>Skills</label><input type="text" name="skills" placeholder="e.g. JavaScript, React, Python"></div>
-                <div class="form-group full-width"><label>Languages</label><input type="text" name="languages" placeholder="e.g. English, Hindi"></div>
-              </div>
-            </fieldset>
-            
-            <div class="sticky-save-bar">
-              <span id="profile-status" class="status-msg"></span>
-              <button type="submit" class="primary-btn" id="save-profile-btn">Save Profile</button>
-            </div>
-          </form>
+  <main class="page">
+    <!-- Profile -->
+    <section id="tab-profile" class="tab-pane active">
+      <div class="page-intro">
+        <div class="page-intro-text">
+          <h1>Your information</h1>
+          <p class="page-subtitle">Add your details once. FormPilot fills them when you need them.</p>
+          <p class="privacy-line">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/>
+              <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>
+            </svg>
+            Stored locally in this browser
+          </p>
         </div>
-      </section>
 
-      <!-- Learned Data Tab -->
-      <section id="tab-learned" class="tab-pane">
-        <header class="tab-header">
-          <h2>Learned Data</h2>
-          <p>Corrections are stored locally and used only for the same site and matching field label.</p>
-        </header>
-        <div class="content-card">
-          <div class="table-toolbar">
-            <div class="table-stats">
-              <span id="learned-count-badge" class="learned-badge">0 entries</span>
-            </div>
-            <div class="table-search">
-              <input type="text" id="learned-search-input" placeholder="Filter by field or value...">
-            </div>
+        <div class="completion" role="group" aria-labelledby="completion-label">
+          <div class="completion-head">
+            <span class="completion-label" id="completion-label">Profile completeness</span>
+            <span class="completion-count" id="profile-progress-count">0 of 21</span>
           </div>
-
-          <div class="table-wrapper">
-            <table class="data-table" id="learned-table">
-              <thead>
-                <tr>
-                  <th style="width: 22%;">Site</th>
-                  <th style="width: 25%;">Form Field Label</th>
-                  <th style="width: 35%;">Learned Value</th>
-                  <th style="width: 18%; text-align: right;">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="learned-table-body">
-                <!-- Rows injected dynamically by options.js -->
-              </tbody>
-            </table>
-            
-            <div id="learned-empty-state" class="empty-state" style="display: none;">
-              <div class="empty-icon">🧠</div>
-              <h3>No Learned Data Yet</h3>
-              <p>When you correct an autofilled value or complete a supported field yourself, FormPilot can remember it for that site. You can review and delete learned values here.</p>
-            </div>
-          </div>
-
-          <div class="table-footer-actions">
-            <span id="learned-status-msg" class="status-msg"></span>
-            <button id="clear-all-learned-btn" class="danger-btn">Clear All Learned Data</button>
+          <div class="completion-track" role="progressbar" id="profile-progress-bar" aria-valuemin="0" aria-valuemax="21" aria-valuenow="0" aria-labelledby="completion-label">
+            <div class="completion-fill" id="profile-progress-fill"></div>
           </div>
         </div>
-      </section>
+      </div>
 
-      <!-- Preferences Tab -->
-      <section id="tab-preferences" class="tab-pane">
-        <header class="tab-header">
-          <h2>Privacy &amp; Data</h2>
-          <p>Privacy and profile-data controls.</p>
-        </header>
-        <div class="content-card">
-          <div class="pref-group">
-            <div class="pref-info">
-              <h3 id="demographic-autofill-label">Allow demographic fields</h3>
-              <p>When enabled, explicitly saved demographic values such as gender may be filled. Disabled by default.</p>
-            </div>
-            <div class="pref-control toggle-switch">
-              <input type="checkbox" id="demographic-autofill-toggle" aria-labelledby="demographic-autofill-label">
-              <label for="demographic-autofill-toggle" class="slider-round" aria-hidden="true"></label>
-            </div>
-          </div>
-
-          <hr class="divider">
-
-          <div class="pref-group data-controls">
-            <div class="pref-info">
-              <h3>Profile data</h3>
-              <p>Profile and corrections stay in this browser. Export a backup or delete them from this browser.</p>
-            </div>
-            <div class="pref-control data-buttons">
-              <button type="button" class="secondary-btn" id="export-data-btn">Export data</button>
-              <label class="secondary-btn import-label" for="import-data-input">Import data</label>
-              <input type="file" id="import-data-input" accept="application/json,.json" hidden>
-              <button type="button" class="danger-btn" id="delete-data-btn">Delete all data</button>
-            </div>
-          </div>
-          <p id="data-status-msg" class="status-msg" role="status"></p>
-          
-        </div>
-      </section>
-
-      <!-- About Tab -->
-      <section id="tab-about" class="tab-pane">
-        <header class="tab-header">
-          <h2>About FormPilot</h2>
-          <p>A careful autofiller for repeat form details.</p>
-        </header>
-        <div class="content-card" style="line-height: 1.6; font-size: 14px; color: var(--text-muted);">
-          <h3 style="color: var(--text-main); margin-bottom: 8px;">Local by default</h3>
-          <p style="margin-bottom: 16px;">Your profile and learned corrections stay in this browser's extension storage. FormPilot does not upload them to a FormPilot server.</p>
-
-          <h3 style="color: var(--text-main); margin-bottom: 8px;">You stay in control</h3>
-          <p style="margin-bottom: 16px;">FormPilot fills only supported matches after you start a fill. Ambiguous fields, existing answers, sensitive fields, and agreements are left for you to review.</p>
-          <ul style="margin-bottom: 16px; padding-left: 20px;">
-            <li style="margin-bottom: 6px;">FormPilot never submits a form.</li>
-            <li style="margin-bottom: 6px;">FormPilot does not overwrite answers you already entered.</li>
-            <li>Export or delete your locally stored data in Privacy &amp; Data.</li>
+      <div class="settings-layout">
+        <nav class="section-rail" aria-label="Profile sections">
+          <p class="rail-title">Sections</p>
+          <ul class="rail-list">
+            <li><a class="rail-link active" href="#section-personal" data-rail="section-personal">Personal</a></li>
+            <li><a class="rail-link" href="#section-location" data-rail="section-location">Location</a></li>
+            <li><a class="rail-link" href="#section-education" data-rail="section-education">Education</a></li>
+            <li><a class="rail-link" href="#section-skills" data-rail="section-skills">Skills</a></li>
+            <li><a class="rail-link" href="#section-work" data-rail="section-work">Work</a></li>
+            <li><a class="rail-link" href="#section-links" data-rail="section-links">Links</a></li>
           </ul>
+        </nav>
 
-          <p style="margin-top: 24px; font-style: italic; border-top: 1px solid var(--border-color); padding-top: 16px;">Built to help you fly through forms, so you can focus on what actually matters.</p>
+        <form id="profile-form" class="profile-form">
+          <section class="card" id="section-personal" aria-labelledby="group-personal">
+            <header class="card-head">
+              <h2 id="group-personal">Personal details</h2>
+              <p>The basics FormPilot matches most often.</p>
+            </header>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="field-label" for="pf-first_name"><span>First name</span></label>
+                <input class="input" id="pf-first_name" type="text" name="first_name" autocomplete="given-name" placeholder="Ada">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-last_name"><span>Last name</span></label>
+                <input class="input" id="pf-last_name" type="text" name="last_name" autocomplete="family-name" placeholder="Lovelace">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-email"><span>Email</span></label>
+                <input class="input" id="pf-email" type="email" name="email" autocomplete="email" placeholder="you@example.com">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-phone"><span>Phone</span></label>
+                <input class="input" id="pf-phone" type="tel" name="phone" autocomplete="tel" placeholder="+91 98765 43210">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-dob"><span>Date of birth</span></label>
+                <input class="input" id="pf-dob" type="date" name="dob" autocomplete="bday">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-gender"><span>Gender</span></label>
+                <select class="select" id="pf-gender" name="gender">
+                  <option value="">Prefer not to say</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-marital_status"><span>Marital status</span><span class="field-tag">Optional</span></label>
+                <select class="select" id="pf-marital_status" name="marital_status">
+                  <option value="">Prefer not to say</option>
+                  <option value="Single">Single</option>
+                  <option value="Married">Married</option>
+                  <option value="Divorced">Divorced</option>
+                  <option value="Separated">Separated</option>
+                  <option value="Widowed">Widowed</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-veteran_status"><span>Veteran status</span><span class="field-tag">Optional</span></label>
+                <select class="select" id="pf-veteran_status" name="veteran_status">
+                  <option value="">Not specified</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-disability_status"><span>Disability status</span><span class="field-tag">Optional</span></label>
+                <select class="select" id="pf-disability_status" name="disability_status">
+                  <option value="">Not specified</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="card" id="section-location" aria-labelledby="group-location">
+            <header class="card-head">
+              <h2 id="group-location">Location</h2>
+              <p>Where you are and where you would like to work.</p>
+            </header>
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="field-label" for="pf-address_line1"><span>Address line 1</span></label>
+                <input class="input" id="pf-address_line1" type="text" name="address_line1" autocomplete="address-line1" placeholder="12 Nehru Road">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-city"><span>City</span></label>
+                <input class="input" id="pf-city" type="text" name="city" autocomplete="address-level2" placeholder="Bhopal">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-state"><span>State</span></label>
+                <input class="input" id="pf-state" type="text" name="state" autocomplete="address-level1" placeholder="Madhya Pradesh">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-pincode"><span>PIN code</span></label>
+                <input class="input" id="pf-pincode" type="text" name="pincode" autocomplete="postal-code" placeholder="462003">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-country"><span>Country</span></label>
+                <input class="input" id="pf-country" type="text" name="country" autocomplete="country-name" placeholder="India">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-preferred_location"><span>Preferred location</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-preferred_location" type="text" name="preferred_location" placeholder="Bhopal">
+              </div>
+            </div>
+          </section>
+
+          <section class="card" id="section-education" aria-labelledby="group-education">
+            <header class="card-head">
+              <h2 id="group-education">Education</h2>
+              <p>Your degree, college and results.</p>
+            </header>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="field-label" for="pf-degree"><span>Degree</span></label>
+                <input class="input" id="pf-degree" type="text" name="degree" placeholder="B.Tech">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-branch"><span>Branch</span></label>
+                <input class="input" id="pf-branch" type="text" name="branch" placeholder="Computer Science">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-college_name"><span>College</span></label>
+                <input class="input" id="pf-college_name" type="text" name="college_name" placeholder="VIT Bhopal">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-graduation_year"><span>Graduation year</span></label>
+                <input class="input" id="pf-graduation_year" type="text" name="graduation_year" inputmode="numeric" placeholder="2024">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-cgpa"><span>CGPA</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-cgpa" type="text" name="cgpa" placeholder="9.01/10.00">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-tenth_percent"><span>10th percentage</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-tenth_percent" type="text" name="tenth_percent" placeholder="92">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-twelfth_percent"><span>12th percentage</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-twelfth_percent" type="text" name="twelfth_percent" placeholder="94">
+              </div>
+            </div>
+          </section>
+
+          <section class="card" id="section-skills" aria-labelledby="group-skills">
+            <header class="card-head">
+              <h2 id="group-skills">Skills & languages</h2>
+              <p>Comma separated. Each entry is matched on its own.</p>
+            </header>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="field-label" for="pf-skills"><span>Skills</span></label>
+                <input class="input" id="pf-skills" type="text" name="skills" placeholder="JavaScript, React, Python">
+                <p class="field-hint">Used for skill checkboxes, dropdowns and free-text answers.</p>
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-languages"><span>Languages</span></label>
+                <input class="input" id="pf-languages" type="text" name="languages" placeholder="English, Hindi">
+              </div>
+            </div>
+          </section>
+
+          <section class="card" id="section-work" aria-labelledby="group-work">
+            <header class="card-head">
+              <h2 id="group-work">Work & availability</h2>
+              <p>Current role, experience and what you are open to.</p>
+            </header>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="field-label" for="pf-current_title"><span>Current title</span></label>
+                <input class="input" id="pf-current_title" type="text" name="current_title" placeholder="Frontend Developer">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-current_company"><span>Current company</span></label>
+                <input class="input" id="pf-current_company" type="text" name="current_company" placeholder="Acme Corp">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-experience_years"><span>Years of experience</span></label>
+                <input class="input" id="pf-experience_years" type="number" name="experience_years" step="0.5" min="0" placeholder="2">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-total_experience_months"><span>Total months</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-total_experience_months" type="number" name="total_experience_months" min="0" placeholder="24">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-notice_period_days"><span>Notice period (days)</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-notice_period_days" type="number" name="notice_period_days" min="0" placeholder="30">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-work_authorization"><span>Work authorization</span></label>
+                <select class="select" id="pf-work_authorization" name="work_authorization">
+                  <option value="">Prefer not to say</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-relocation_ok"><span>Open to relocation</span><span class="field-tag">Optional</span></label>
+                <select class="select" id="pf-relocation_ok" name="relocation_ok">
+                  <option value="">Prefer not to say</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-remote_work_ok"><span>Open to remote work</span><span class="field-tag">Optional</span></label>
+                <select class="select" id="pf-remote_work_ok" name="remote_work_ok">
+                  <option value="">Prefer not to say</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="card" id="section-links" aria-labelledby="group-links">
+            <header class="card-head">
+              <h2 id="group-links">Links</h2>
+              <p>Where employers can find your work.</p>
+            </header>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="field-label" for="pf-linkedin_url"><span>LinkedIn</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-linkedin_url" type="text" inputmode="url" name="linkedin_url" placeholder="https://linkedin.com/in/ada">
+              </div>
+              <div class="form-group">
+                <label class="field-label" for="pf-github_url"><span>GitHub</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-github_url" type="text" inputmode="url" name="github_url" placeholder="https://github.com/ada">
+              </div>
+              <div class="form-group full-width">
+                <label class="field-label" for="pf-portfolio_url"><span>Portfolio</span><span class="field-tag">Optional</span></label>
+                <input class="input" id="pf-portfolio_url" type="text" inputmode="url" name="portfolio_url" placeholder="https://ada.dev">
+              </div>
+            </div>
+          </section>
+
+          <p class="form-note">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6L12 3Z"/>
+            </svg>
+            FormPilot never submits forms, and never fills credentials or payment details.
+          </p>
+        </form>
+      </div>
+    </section>
+
+    <!-- Learned data -->
+    <section id="tab-learned" class="tab-pane">
+      <div class="page-intro">
+        <div class="page-intro-text">
+          <h1>Learned corrections</h1>
+          <p class="page-subtitle">When you correct a field FormPilot got wrong, it remembers that correction for the site.</p>
         </div>
-      </section>
+      </div>
 
-    </main>
+      <div class="table-toolbar">
+        <span id="learned-count-badge" class="chip chip-accent">0 corrections</span>
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5"/>
+            <path d="m16 16 4 4"/>
+          </svg>
+          <input id="learned-search-input" class="input search-input" type="search" placeholder="Filter by site, field or value" aria-label="Filter learned corrections">
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table" id="learned-table">
+          <thead>
+            <tr>
+              <th scope="col">Site</th>
+              <th scope="col">Field</th>
+              <th scope="col">Learned value</th>
+              <th scope="col" class="actions-col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="learned-table-body"></tbody>
+        </table>
+
+        <div id="learned-empty-state" class="empty-state" style="display: none;">
+          <span class="empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 4.5h9l5 5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"/>
+              <path d="M14 4.5v5h5"/>
+              <path d="M8 14h8"/>
+            </svg>
+          </span>
+          <h3>Nothing learned yet</h3>
+          <p>When you correct a field match, FormPilot can remember that correction for next time.</p>
+        </div>
+      </div>
+
+      <div class="table-footer-actions">
+        <span id="learned-status-msg" class="status-msg" role="status" aria-live="polite"></span>
+        <button id="clear-all-learned-btn" class="btn btn-danger" type="button">Clear all corrections</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>FormPilot never submits forms. Review filled fields before submitting.</span>
+  </footer>
+
+  <a href="https://www.buymeacoffee.com/Divyanshu129" target="_blank" rel="noopener noreferrer" class="floating-support" aria-label="Buy me a coffee">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M17 15h-2V9c0-2.21-1.79-4-4-4S7 6.79 7 9v6H5a2 2 0 0 0-2 2v2h16v-2a2 2 0 0 0-2-2Z"/>
+    </svg>
+    <span class="floating-label">Buy me a coffee</span>
+  </a>
+
+  <!-- Save bar -->
+  <div class="save-bar" id="save-bar">
+    <div class="save-bar-inner">
+      <span id="profile-status" class="status-msg" role="status" aria-live="polite"></span>
+      <button type="submit" form="profile-form" class="btn btn-primary" id="save-profile-btn" disabled>
+        Save profile
+      </button>
+    </div>
   </div>
+
+  <!-- Privacy dialog -->
+  <dialog id="privacy-dialog" class="dialog" aria-labelledby="privacy-title">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2 id="privacy-title">Privacy & data</h2>
+        <p>Your information stays in this browser. FormPilot never uploads your profile or learned corrections anywhere.</p>
+      </div>
+      <button class="icon-btn" value="close" aria-label="Close privacy dialog">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </form>
+    <div class="dialog-body">
+      <div class="pref-group data-controls">
+        <div class="pref-info">
+          <h3>Manage your data</h3>
+          <p>Export a backup, import one, or delete everything stored in this browser.</p>
+        </div>
+        <div class="data-buttons">
+          <button type="button" class="btn btn-secondary" id="export-data-btn">Export data</button>
+          <label class="btn btn-secondary import-label" for="import-data-input">Import data</label>
+          <input type="file" id="import-data-input" accept="application/json,.json" hidden>
+          <button type="button" class="btn btn-danger" id="delete-data-btn">Delete all data</button>
+        </div>
+      </div>
+      <p id="data-status-msg" class="status-msg" role="status" aria-live="polite"></p>
+    </div>
+  </dialog>
+
+  <!-- About dialog -->
+  <dialog id="about-dialog" class="dialog" aria-labelledby="about-title">
+    <form method="dialog" class="dialog-head">
+      <div>
+        <h2 id="about-title">About FormPilot</h2>
+        <p>A local-first form autofiller for Edge and Firefox.</p>
+      </div>
+      <button class="icon-btn" value="close" aria-label="Close about dialog">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </form>
+    <div class="dialog-body about-body">
+      <p>FormPilot fills the fields it can match with certainty and leaves the rest for you to review.</p>
+      <ul>
+        <li>Your profile and corrections are stored in this browser only.</li>
+        <li>FormPilot never submits forms or accepts agreements for you.</li>
+        <li>You can export or delete your data at any time.</li>
+      </ul>
+      <p class="about-version">FormPilot 1.0</p>
+    </div>
+  </dialog>
+
   <script src="shared/storage.js"></script>
   <script src="options.js"></script>
 </body>
