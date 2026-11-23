@@ -1,5 +1,5 @@
-// Smoke tests for local profile and domain-scoped correction persistence.
-const assert = require('node:assert/strict');
+  // Smoke tests for local profile and global correction persistence.
+  const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -36,14 +36,15 @@ async function run() {
   assert.equal((await store.loadProfile()).email, 'ada@example.com');
 
   await store.saveCorrection({ domain: 'example.com', field_label: 'email address', corrected_value: 'ada@work.test' });
-  await store.saveCorrection({ domain: 'example.com', field_label: 'Email Address *', corrected_value: 'ada@latest.test' });
+  await store.saveCorrection({ domain: 'example.com', field_label: 'phone number', corrected_value: '+91 99999 88888' });
+  // Same field label on a different site replaces the previous correction (global, not per-site).
   await store.saveCorrection({ domain: 'other.example', field_label: 'email address', corrected_value: 'ada@other.test' });
   assert.equal((await store.loadCorrections()).length, 2);
 
-  await store.updateCorrection('example.com', 'email address', 'ada@updated.test');
+  await store.updateCorrection('email address', 'ada@updated.test');
   const backup = await store.exportData();
   assert.equal(backup.profile.email, 'ada@example.com');
-  assert.equal(backup.corrections.find(item => item.domain === 'example.com').corrected_value, 'ada@updated.test');
+  assert.equal(backup.corrections.find(item => item.field_label === 'email address').corrected_value, 'ada@updated.test');
 
   await store.clearUserData();
   assert.deepEqual(JSON.parse(JSON.stringify(await store.loadProfile())), {});
@@ -51,10 +52,10 @@ async function run() {
 
   await store.importData(backup);
   assert.equal((await store.loadProfile()).email, 'ada@example.com');
-  await store.deleteCorrection('example.com', 'email address');
+  await store.deleteCorrection('email address');
   const remaining = await store.loadCorrections();
   assert.equal(remaining.length, 1);
-  assert.equal(remaining[0].domain, 'other.example');
+  assert.equal(remaining[0].field_label, 'phone number');
 
   await store.clearUserData();
   assert.equal((await store.loadCorrections()).length, 0);

@@ -153,7 +153,7 @@ FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     FormPilotStore.saveCorrection({
-      domain,
+      domain: '',
       field_label: label,
       corrected_value: value,
       field_kind: message.field_kind

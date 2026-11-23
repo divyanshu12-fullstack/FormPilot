@@ -50,47 +50,47 @@
       && typeof item.corrected_value === 'string';
   }
 
-  async function saveCorrection(correction) {
-    if (!isValidCorrection(correction) || !correction.field_label.trim()) {
-      throw new TypeError('Correction is invalid');
-    }
-
-    const corrections = await loadCorrections();
-    const labelKey = normalizeCorrectionLabel(correction.field_label);
-    const index = corrections.findIndex(item => item.domain === correction.domain
-      && normalizeCorrectionLabel(item.field_label) === labelKey);
-    const clean = {
-      domain: correction.domain.toLowerCase(),
-      field_label: correction.field_label.trim(),
-      corrected_value: correction.corrected_value,
-      field_kind: correction.field_kind === 'option' ? 'option' : 'value',
-      updated_at: new Date().toISOString()
-    };
-
-    if (index >= 0) corrections[index] = clean;
-    else corrections.push(clean);
-    await storageCall('set', { [CORRECTIONS_KEY]: corrections });
-    return clean;
+async function saveCorrection(correction) {
+  if (!isValidCorrection(correction) || !correction.field_label.trim()) {
+    throw new TypeError('Correction is invalid');
   }
 
-  async function updateCorrection(domain, fieldLabel, correctedValue) {
-    const corrections = await loadCorrections();
-    const labelKey = normalizeCorrectionLabel(fieldLabel);
-    const item = corrections.find(entry => entry.domain === domain
-      && normalizeCorrectionLabel(entry.field_label) === labelKey);
-    if (!item) throw new Error('Correction not found');
-    item.corrected_value = String(correctedValue);
-    item.updated_at = new Date().toISOString();
-    await storageCall('set', { [CORRECTIONS_KEY]: corrections });
-  }
+  const corrections = await loadCorrections();
+  const labelKey = normalizeCorrectionLabel(correction.field_label);
+  const index = corrections.findIndex(item =>
+    normalizeCorrectionLabel(item.field_label) === labelKey);
+  const clean = {
+    domain: '',
+    field_label: correction.field_label.trim(),
+    corrected_value: correction.corrected_value,
+    field_kind: correction.field_kind === 'option' ? 'option' : 'value',
+    updated_at: new Date().toISOString()
+  };
 
-  async function deleteCorrection(domain, fieldLabel) {
-    const corrections = await loadCorrections();
-    const labelKey = normalizeCorrectionLabel(fieldLabel);
-    const updated = corrections.filter(entry => !(entry.domain === domain
-      && normalizeCorrectionLabel(entry.field_label) === labelKey));
-    await storageCall('set', { [CORRECTIONS_KEY]: updated });
-  }
+  if (index >= 0) corrections[index] = clean;
+  else corrections.push(clean);
+  await storageCall('set', { [CORRECTIONS_KEY]: corrections });
+  return clean;
+}
+
+async function updateCorrection(fieldLabel, correctedValue) {
+  const corrections = await loadCorrections();
+  const labelKey = normalizeCorrectionLabel(fieldLabel);
+  const item = corrections.find(entry =>
+    normalizeCorrectionLabel(entry.field_label) === labelKey);
+  if (!item) throw new Error('Correction not found');
+  item.corrected_value = String(correctedValue);
+  item.updated_at = new Date().toISOString();
+  await storageCall('set', { [CORRECTIONS_KEY]: corrections });
+}
+
+async function deleteCorrection(fieldLabel) {
+  const corrections = await loadCorrections();
+  const labelKey = normalizeCorrectionLabel(fieldLabel);
+  const updated = corrections.filter(entry =>
+    !(normalizeCorrectionLabel(entry.field_label) === labelKey));
+  await storageCall('set', { [CORRECTIONS_KEY]: updated });
+}
 
   async function clearCorrections() {
     await storageCall('set', { [CORRECTIONS_KEY]: [] });
@@ -115,14 +115,14 @@
     const uniqueCorrections = new Map();
     for (const item of data.corrections.filter(isValidCorrection)) {
       const clean = {
-        domain: item.domain.toLowerCase(),
+        domain: '',
         field_label: item.field_label.trim(),
         corrected_value: item.corrected_value,
         field_kind: item.field_kind === 'option' ? 'option' : 'value',
         updated_at: item.updated_at || new Date().toISOString()
       };
       if (!clean.field_label) continue;
-      uniqueCorrections.set(`${clean.domain}\u0000${normalizeCorrectionLabel(clean.field_label)}`, clean);
+      uniqueCorrections.set(normalizeCorrectionLabel(clean.field_label), clean);
     }
     const corrections = Array.from(uniqueCorrections.values());
 

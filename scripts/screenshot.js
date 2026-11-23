@@ -3,7 +3,7 @@
 //
 //   node scripts/screenshot.js <url> <out.png> [--width=1280] [--height=900]
 //                              [--full] [--wait=800] [--stub=options|popup|popup-empty]
-//                              [--click=#selector]
+//                              [--click=#selector]... [--type=#selector=value]
 //
 // The stub is injected before any page script runs, so storage, runtime and
 // tabs behave like they do inside the browser.
@@ -44,7 +44,9 @@ const width = Number(flag('width', 1280));
 const height = Number(flag('height', 900));
 const waitMs = Number(flag('wait', 900));
 const stub = flag('stub', 'none');
-const clickSelector = flag('click', '');
+const clickSelectors = args
+  .filter(a => a.startsWith('--click='))
+  .map(a => a.slice('--click='.length));
 
 const SAMPLE_PROFILE = {
   first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com',
@@ -208,9 +210,9 @@ async function fetchJson(target, tries = 40) {
     await send('Page.navigate', { url }, sessionId);
     await sleep(waitMs);
 
-    if (clickSelector) {
+    for (const selector of clickSelectors) {
       await send('Runtime.evaluate', {
-        expression: `(() => { const el = document.querySelector(${JSON.stringify(clickSelector)}); if (el) el.click(); return !!el; })()`
+        expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (el) el.click(); return !!el; })()`
       }, sessionId);
       await sleep(waitMs);
     }

@@ -1320,11 +1320,9 @@ function matchField(field, profile, corrections = {}) {
   // Consent / attestation boxes are never matched to profile data.
   if (field.isConsent) return null;
 
-  // 1. A correction is reusable only on the same site and matching label.
+  // 1. A correction is reusable on any site for a matching label.
   if (Array.isArray(corrections)) {
-    const domain = window.location.hostname.toLowerCase();
     const correction = corrections.find(item => item
-      && item.domain === domain
       && normalizeLabel(item.field_label) === label);
     if (correction) return { type: 'correction', value: correction.corrected_value };
   }
