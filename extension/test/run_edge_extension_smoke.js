@@ -16,7 +16,9 @@ if (!EDGE) {
   process.exit(2);
 }
 
-const extensionDir = path.resolve(__dirname, '..');
+const extensionDir = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.resolve(__dirname, '..');
 const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'formpilot-edge-smoke-'));
 const port = 9500 + (process.pid % 800);
 const edge = spawn(EDGE, [

@@ -19,7 +19,7 @@ const DIST_DIR = path.join(ROOT, 'dist');
 const STAGING_DIR = path.join(DIST_DIR, 'staging');
 const GECKO_ID = process.env.FORMPILOT_GECKO_ID || 'formpilot@example.com';
 
-const EXCLUDED = new Set(['test', '.DS_Store', 'Thumbs.db']);
+const EXCLUDED = new Set(['test', 'candidates', '.DS_Store', 'Thumbs.db']);
 
 // ── ZIP writer ──
 const CRC_TABLE = (() => {
