@@ -8,11 +8,6 @@
 
 const FormPilotAPI = globalThis.browser || globalThis.chrome;
 const HIGHLIGHT_DURATION_MS = 2200;
-const IS_TAB_TOP_FRAME = window.top === window.self;
-const FRAME_CHANNEL = 'formpilot-frame';
-const FRAME_REPLY_TIMEOUT_MS = 10000;
-
-
 const MAX_AUTOFILL_PASSES = 4;
 const DOM_SETTLE_MS = 450;
 
@@ -27,6 +22,10 @@ const filledFieldsMap = new WeakMap();
 
 function isVisible(el) {
   return isElementVisible(el);
+}
+
+function isControlDisabled(el) {
+  return el.matches(':disabled') || Boolean(el.closest('[aria-disabled="true"]'));
 }
 
 /**
@@ -102,13 +101,6 @@ function applyHighlight(el, level = 'high') {
 // PLATFORM DETECTION
 // ═══════════════════════════════════════
 
-function detectPlatform() {
-  const url = window.location.href;
-  if (url.includes('docs.google.com/forms') || url.includes('forms.google.com')) return 'google-forms';
-  if (url.includes('forms.office.com') || url.includes('forms.microsoft.com')) return 'ms-forms';
-  return 'generic';
-}
-
 // ═══════════════════════════════════════
 // SECTION CONTEXT — finds nearest heading ancestor to detect
 // sections like "Emergency Contact" or "References"
@@ -179,7 +171,7 @@ function getAriaLabel(el) {
 }
 
 function getAriaLabelledBy(el) {
-  const ids = el.getAttribute && el.getAttribute('aria-labelledby');
+  const ids = el?.getAttribute('aria-labelledby');
   if (!ids) return '';
   const parts = ids.split(/\s+/).map(id => {
     const ref = document.getElementById(id);
@@ -413,7 +405,7 @@ function optionsFromSelect(el) {
       el: o,
       value: o.value || (o.textContent || '').trim(),
       text: (o.textContent || '').trim(),
-      disabled: !!o.disabled,
+      disabled: isControlDisabled(o),
       selected: !!o.selected
     }));
 }
@@ -426,7 +418,7 @@ function optionsFromRoleListbox(el) {
       el: o,
       value: o.getAttribute('data-value') || o.textContent.trim(),
       text: o.textContent.trim(),
-      disabled: o.getAttribute('aria-disabled') === 'true',
+      disabled: isControlDisabled(o),
       selected: o.getAttribute('aria-selected') === 'true'
     }));
 }
@@ -439,7 +431,7 @@ function optionsFromRadioGroup(el) {
       el: r,
       value: r.getAttribute('data-value') || r.textContent.trim(),
       text: r.textContent.trim(),
-      disabled: r.getAttribute('aria-disabled') === 'true',
+      disabled: isControlDisabled(r),
       selected: r.getAttribute('aria-checked') === 'true'
     }));
   }
@@ -448,7 +440,7 @@ function optionsFromRadioGroup(el) {
     el: r,
     value: r.value || ownLabelOf(r),
     text: ownLabelOf(r) || r.value,
-    disabled: !!r.disabled,
+    disabled: isControlDisabled(r),
     selected: !!r.checked
   }));
 }
@@ -459,24 +451,15 @@ function optionsFromCheckboxGroup(el) {
     el: c,
     value: c.getAttribute('data-value') || c.textContent.trim(),
     text: c.textContent.trim(),
-    disabled: c.getAttribute('aria-disabled') === 'true',
+    disabled: isControlDisabled(c),
     selected: c.getAttribute('aria-checked') === 'true'
   }));
 }
 
 /** The label describing a single checkbox/radio, not its question. */
 function ownLabelOf(input) {
-  let lbl = null;
-  if (input.id) {
-    try { lbl = document.querySelector(`label[for="${CSS.escape(input.id)}"]`); } catch (e) { lbl = null; }
-  }
-  if (!lbl && input.closest) lbl = input.closest('label');
-  if (lbl) {
-    const clone = lbl.cloneNode(true);
-    clone.querySelectorAll('input, select, textarea').forEach(i => i.remove());
-    const text = clone.textContent.trim();
-    if (text) return text;
-  }
+  const label = getLabelByFor(input) || getWrappingLabel(input);
+  if (label) return label;
   const aria = getAriaLabel(input);
   if (aria) return aria;
   // Sibling text node
@@ -524,15 +507,19 @@ function longestCommonPrefix(labels) {
  * finds the fieldset or wrapper that groups them without swallowing the
  * whole form.
  */
-function findGroupContainer(control, selector) {
+function findGroupContainer(control, selector, members) {
+  const countIn = node => members
+    ? members.filter(member => node.contains(member)).length
+    : node.querySelectorAll(selector).length;
   let node = control.parentElement;
   let depth = 0;
   let lastGood = null;
   while (node && node !== document.body && node !== document.documentElement && depth < 10) {
-    const count = node.querySelectorAll(selector).length;
-    if (count >= 2) {
+    const count = countIn(node);
+    if (members ? count === members.length : count >= 2) {
+      if (node.matches('fieldset, [role="group"], [role="radiogroup"]')) return node;
       const parent = node.parentElement;
-      const parentCount = parent ? parent.querySelectorAll(selector).length : 0;
+      const parentCount = parent ? countIn(parent) : 0;
       if (parentCount === count) {
         // Same set continues upward — keep climbing to the outermost owner.
         lastGood = parent && parent !== document.body ? parent : node;
@@ -633,7 +620,7 @@ function buildRadioField(groupEl, radios, opts = {}) {
       el: r,
       value: r.value || ownLabelOf(r),
       text: ownLabelOf(r) || r.value,
-      disabled: !!r.disabled,
+      disabled: isControlDisabled(r) || !isVisible(r),
       selected: !!r.checked
     }))
     : (groupEl ? optionsFromRadioGroup(groupEl) : []);
@@ -641,20 +628,21 @@ function buildRadioField(groupEl, radios, opts = {}) {
   if (!options.length) return null;
 
   const label = opts.label || resolveRadioGroupLabel(groupEl, radios, options);
-  const el = groupEl || radios[0];
+  const el = opts.anchor || radios?.[0] || groupEl;
+  const container = groupEl || el;
   return {
     element: el,
-    optionsEl: el,
+    optionsEl: container,
     groupKey: opts.groupKey || '',
     kind: FIELD_KIND.RADIO,
     type: 'radio',
     tagName: el.tagName,
-    id: el.id || '',
+    id: container.id || el.id || '',
     name: radios && radios[0] ? (radios[0].getAttribute('name') || '') : '',
     placeholder: '',
     labelText: label,
-    ariaLabel: getAriaLabel(el),
-    sectionContext: resolveGroupSection(el, label),
+    ariaLabel: getAriaLabel(container),
+    sectionContext: resolveGroupSection(container, label),
     isCustomWidget: opts.isCustomWidget || false,
     widgetRole: opts.widgetRole || 'radiogroup',
     options,
@@ -678,7 +666,7 @@ function buildCheckboxField(groupEl, boxes, opts = {}) {
     el: b,
     value: b.value || ownLabelOf(b),
     text: ownLabelOf(b) || b.value,
-    disabled: !!b.disabled,
+    disabled: isControlDisabled(b),
     selected: !!b.checked
   }));
   return {
@@ -731,7 +719,7 @@ function findDatePartGroup(input) {
   const parent = input.parentElement;
   if (!parent) return null;
   const inputs = Array.from(parent.querySelectorAll('input')).filter(isDatePartInput);
-  if (inputs.length < 2) return null;
+  if (inputs.length !== 3 || inputs.some(el => !isVisible(el) || isControlDisabled(el) || el.readOnly)) return null;
   const roles = new Set(inputs.map(datePartRole));
   if (!roles.has('yyyy') || !roles.has('mm') || !roles.has('dd')) return null;
   return { container: parent, inputs };
@@ -745,18 +733,16 @@ function currentValueOf(field) {
   const el = field.element;
   if (!el) return '';
   switch (field.kind) {
+    case FIELD_KIND.SELECT:
+      return el.value ? (el.selectedOptions[0]?.textContent.trim() || el.value) : '';
     case FIELD_KIND.MULTI_SELECT:
-      return Array.from(el.selectedOptions || []).map(o => o.value || o.textContent.trim());
+      return Array.from(el.selectedOptions || []).map(o => o.textContent.trim() || o.value);
     case FIELD_KIND.CHECKBOX_MULTI:
-      return field.options.filter(o => o.selected).map(o => o.value);
-    case FIELD_KIND.RADIO: {
-      const checked = field.options.find(o => o.selected);
-      return checked ? checked.value : '';
-    }
+      return field.options.filter(optionIsSelected).map(o => o.text || o.value);
+    case FIELD_KIND.RADIO:
     case FIELD_KIND.CHECKBOX_SINGLE: {
-      const opt = field.options[0];
-      if (opt) return opt.selected ? opt.value : '';
-      return el.checked ? (el.value || 'on') : '';
+      const option = field.options.find(optionIsSelected);
+      return option ? (option.text || option.value) : '';
     }
     case FIELD_KIND.CUSTOM_DROPDOWN: {
       const byVal = el.getAttribute('data-value') || el.getAttribute('aria-valuetext');
@@ -780,23 +766,28 @@ function currentValueOf(field) {
   }
 }
 
+function fieldValueKey(field, value) {
+  const { kind, element: el } = field;
+  if (kind === FIELD_KIND.SELECT || kind === FIELD_KIND.MULTI_SELECT) {
+    return JSON.stringify([value, Array.from(el.selectedOptions, option => option.index)]);
+  }
+  if (kind === FIELD_KIND.RADIO || kind === FIELD_KIND.CHECKBOX_SINGLE || kind === FIELD_KIND.CHECKBOX_MULTI) {
+    const selected = field.options.flatMap((option, index) => optionIsSelected(option) ? [index] : []);
+    return JSON.stringify([value, selected]);
+  }
+  return JSON.stringify(value);
+}
+
 /**
  * Whether this control already holds a value the *user* put there.
- * A value FormPilot itself wrote is always replaceable; this is what stops us
- * from stomping a choice the user picked by hand while still letting a repeat
- * autofill correct its own earlier answer.
+ * A repeat fill may replace its own value only while the control still holds
+ * that value and has not been edited by the user.
  */
 function hasUserValue(field) {
-  if (filledFieldsMap.has(field.element)) return false;
-  // A date-part group reads as "//" when all three boxes are empty, so check
-  // the boxes themselves rather than the joined string.
-  if (field.kind === FIELD_KIND.DATE_PARTS) {
-    const parts = field.dateParts || {};
-    return ['dd', 'mm', 'yyyy'].some(role => parts[role] && String(parts[role].value || '').trim() !== '');
-  }
-  const v = currentValueOf(field);
-  if (Array.isArray(v)) return v.filter(x => x !== '' && x !== null).length > 0;
-  return String(v === null || v === undefined ? '' : v).trim() !== '';
+  const value = currentValueOf(field);
+  if ((Array.isArray(value) ? !value.length : !String(value).trim()) ||
+      (field.kind === FIELD_KIND.DATE_PARTS && value === '//')) return false;
+  return filledFieldsMap.get(field.element)?.autofilled !== fieldValueKey(field, value);
 }
 
 function buildFieldObj(el, labelText, isCustom, widgetRole, kind) {
@@ -842,23 +833,27 @@ const GenericAdapter = {
     const radios = deepQueryAll(document, 'input[type="radio"]');
     const radioGroups = new Map();
     for (const r of radios) {
-      if (r.disabled || !isVisible(r)) continue;
       const name = r.getAttribute('name') || '';
-      const key = name ? `name:${name}` : '';
-      if (key) {
-        if (!radioGroups.has(key)) radioGroups.set(key, []);
-        radioGroups.get(key).push(r);
-      }
+      if (!name) continue;
+      const owner = r.form || r.getRootNode();
+      if (!radioGroups.has(owner)) radioGroups.set(owner, new Map());
+      const groups = radioGroups.get(owner);
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(r);
+      claimed.add(r);
     }
-    for (const [key, group] of radioGroups) {
-      const container = findGroupContainer(group[0], 'input[type="radio"]');
-      for (const r of group) claimed.add(r);
-      const field = buildRadioField(container, group, { groupKey: key });
-      if (field) fields.push(field);
+    for (const groups of radioGroups.values()) {
+      for (const [name, group] of groups) {
+        const visible = group.find(r => !isControlDisabled(r) && isVisible(r));
+        if (!visible) continue;
+        const container = findGroupContainer(visible, 'input[type="radio"]', group);
+        const field = buildRadioField(container, group, { groupKey: name, anchor: visible });
+        if (field) fields.push(field);
+      }
     }
     // Radios with no shared name: each is its own single-option question.
     for (const r of radios) {
-      if (claimed.has(r) || r.disabled || !isVisible(r)) continue;
+      if (claimed.has(r) || isControlDisabled(r) || !isVisible(r)) continue;
       claimed.add(r);
       const field = buildRadioField(null, [r], { groupKey: `solo:${r.id || Math.random()}` });
       if (field) fields.push(field);
@@ -868,7 +863,7 @@ const GenericAdapter = {
     const boxes = deepQueryAll(document, 'input[type="checkbox"]');
     const boxGroups = new Map();
     for (const b of boxes) {
-      if (b.disabled || !isVisible(b)) continue;
+      if (isControlDisabled(b) || !isVisible(b)) continue;
       const own = ownLabelOf(b);
       const section = getSectionContext(b);
       const kind = classifyCheckbox(b, own, section);
@@ -904,7 +899,6 @@ const GenericAdapter = {
       fields.push(buildCheckboxField(container, group, {
         multi: true,
         groupKey: `group:${(container && container.tagName) || 'div'}:${group.length}`,
-        label: section || longestCommonPrefix(group.map(b => ownLabelOf(b))),
         sectionContext: section
       }));
     }
@@ -951,7 +945,7 @@ const GenericAdapter = {
       if (claimed.has(el)) continue;
       if (el.tagName === 'INPUT' && SKIP_TYPES.has(el.type)) continue;
       if (!isVisible(el)) continue;
-      if (el.disabled) continue;
+      if (isControlDisabled(el)) continue;
       // A readonly input is normally a display-only mirror of some other
       // control, but a readonly *date* input is the real target of a JS
       // picker (flatpickr, MUI, react-datepicker), so keep those.
@@ -973,7 +967,7 @@ const GenericAdapter = {
     for (const el of deepQueryAll(document, WIDGET_SEL)) {
       if (claimed.has(el)) continue;
       if (!isVisible(el)) continue;
-      if (el.disabled) continue;
+      if (isControlDisabled(el)) continue;
       // An individual ARIA radio/checkbox is collected as part of its group
       // container, never on its own — otherwise it appears twice.
       if ((el.getAttribute('role') === 'radio' || el.getAttribute('role') === 'checkbox' || el.getAttribute('role') === 'switch')
@@ -981,7 +975,7 @@ const GenericAdapter = {
       // Skip a wrapper that merely contains a real, already-claimed control.
       if (el.querySelector('input, select, textarea:not([readonly])')) {
         const inner = el.querySelector('input, select, textarea');
-        if (inner && !inner.readOnly && !inner.disabled) continue;
+        if (inner && !inner.readOnly && !isControlDisabled(inner)) continue;
       }
       const kind = kindForCustomWidget(el);
       if (kind === FIELD_KIND.UNKNOWN) continue;
@@ -1010,7 +1004,7 @@ const GFormsAdapter = {
     // 1. Short answer + paragraph (real <input> and <textarea>)
     for (const el of deepQueryAll(document, 'input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input[type="date"], input:not([type]), textarea')) {
       if (claimed.has(el) || !isVisible(el)) continue;
-      if (el.disabled || el.readOnly) continue;
+      if (isControlDisabled(el) || el.readOnly) continue;
       if (el.type === 'search' || el.getAttribute('role') === 'search') continue;
       if (el.closest('[role="navigation"], [role="banner"], header')) continue;
       claimed.add(el);
@@ -1081,7 +1075,7 @@ const MSFormsAdapter = {
     // 1. Text inputs + textareas
     for (const el of deepQueryAll(document, 'input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input[type="date"], input[type="datetime-local"], input[type="month"], input[type="time"], input:not([type]), textarea')) {
       if (claimed.has(el) || !isVisible(el)) continue;
-      if (el.disabled || el.readOnly) continue;
+      if (isControlDisabled(el) || el.readOnly) continue;
       if (el.closest('[role="navigation"], [role="banner"], header, nav')) continue;
       claimed.add(el);
       const kind = refineKindForDateWidget(el, kindFromInputType(el) || FIELD_KIND.UNKNOWN);
@@ -1155,7 +1149,6 @@ const MSFormsAdapter = {
 // MAIN COLLECTOR
 // ═══════════════════════════════════════
 
-let cachedFields = [];
 let currentPlatform = 'generic';
 
 function getAdapter() {
@@ -1167,113 +1160,8 @@ function getAdapter() {
 }
 
 function collectFields() {
-  cachedFields = getAdapter().collectFields();
-  return cachedFields;
+  return getAdapter().collectFields();
 }
-
-// ═══════════════════════════════════════
-// EMBEDDED FRAMES
-// ═══════════════════════════════════════
-
-// Only same-origin frames can be reached: the extension holds no host
-// permissions, so a cross-origin frame never receives the content script.
-function embeddedFrames() {
-  const windows = [];
-  let crossOrigin = 0;
-  for (const frame of document.querySelectorAll('iframe, frame')) {
-    let win = null;
-    try {
-      win = frame.contentWindow;
-      void frame.contentDocument;
-    } catch (error) {
-      crossOrigin++;
-      continue;
-    }
-    if (win) windows.push(win);
-  }
-  return { windows, crossOrigin };
-}
-function requestFrame(win, id, action, payload) {
-  return new Promise(resolve => {
-    let settled = false;
-    const finish = value => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener('message', onReply);
-      clearTimeout(timer);
-      resolve(value);
-    };
-    const onReply = event => {
-      if (event.source !== win) return;
-      const data = event.data;
-      if (!data || data.__formpilot !== FRAME_CHANNEL) return;
-      if (data.kind !== 'reply' || data.id !== id) return;
-      finish(data.ok ? data.result : null);
-    };
-    const timer = setTimeout(() => finish(null), FRAME_REPLY_TIMEOUT_MS);
-    window.addEventListener('message', onReply);
-    try {
-      win.postMessage({ __formpilot: FRAME_CHANNEL, kind: 'request', id, action, payload }, '*');
-    } catch (error) {
-      finish(null);
-    }
-  });
-}
-
-async function relayToEmbeddedFrames(id, action, payload) {
-  const { windows, crossOrigin } = embeddedFrames();
-  if (!windows.length) return { results: [], unreachable: crossOrigin };
-  const results = await Promise.all(windows.map(win => requestFrame(win, id, action, payload)));
-  let unreachable = crossOrigin;
-  for (const result of results) {
-    if (!result) unreachable++;
-  }
-  return { results, unreachable };
-}
-
-const REPORT_COUNTERS = [
-  'totalFields', 'filled', 'ambiguous', 'noOption', 'noValue', 'deferred',
-  'unsupported', 'skipped', 'failed', 'consent', 'blocked', 'unmatched'
-];
-
-function mergeReports(reports) {
-  const merged = makeReport();
-  for (const report of reports) {
-    if (!report) continue;
-    for (const key of REPORT_COUNTERS) merged[key] += Number(report[key]) || 0;
-    for (const failure of report.failures || []) merged.failures.push(failure);
-    for (const detail of report.details || []) {
-      if (merged.details.length < 50) merged.details.push(detail);
-    }
-  }
-  merged.failures = merged.failures.slice(0, 25);
-  return merged;
-}
-
-function reportPayload(report) {
-  return {
-    totalFields: report.totalFields,
-    filled: report.filled,
-    noOption: report.noOption,
-    ambiguous: report.ambiguous,
-    noValue: report.noValue,
-    deferred: report.deferred,
-    unsupported: report.unsupported,
-    skipped: report.skipped,
-    failed: report.failed,
-    consent: report.consent,
-    blocked: report.blocked,
-    unmatched: report.unmatched,
-    failures: report.failures.slice(0, 25),
-    details: report.details
-  };
-}
-
-function needsReviewCount(report) {
-  return Math.max(0, report.noOption + report.ambiguous + report.noValue + report.deferred
-    + report.failed + report.unsupported + report.unmatched + report.blocked + report.consent);
-}
-
 
 // ═══════════════════════════════════════
 // MATCHING LOGIC
@@ -1300,12 +1188,7 @@ function matchField(field, profile, corrections = {}) {
   const label = normalizeLabel(fieldLabelOf(field));
 
   // A bare "Name" is too context dependent without a personal/applicant cue.
-  if (label === 'name') {
-    const personalContext = /\b(applicant|candidate|personal|your details|contact details)\b/.test(section);
-    if (!personalContext) return null;
-    const value = getProfileValue(FIELD_TYPES.FULL_NAME, profile);
-    return value ? { type: FIELD_TYPES.FULL_NAME, value } : null;
-  }
+  if (label === 'name' && !/\b(applicant|candidate|personal|your details|contact details)\b/.test(section)) return null;
 
   // Hard block: fields that belong to someone else, regardless of section.
   for (const neg of HARD_NEGATIVE_LABEL_KEYWORDS) {
@@ -1324,7 +1207,11 @@ function matchField(field, profile, corrections = {}) {
   if (Array.isArray(corrections)) {
     const correction = corrections.find(item => item
       && normalizeLabel(item.field_label) === label);
-    if (correction) return { type: 'correction', value: correction.corrected_value };
+    if (correction) return { type: 'correction', value: correction.corrected_value, domain: correction.domain };
+  }
+  if (label === 'name') {
+    const value = getProfileValue(FIELD_TYPES.FULL_NAME, profile);
+    return value ? { type: FIELD_TYPES.FULL_NAME, value } : null;
   }
 
   // 2. Signatures (case-insensitive + punctuation-insensitive)
@@ -1386,78 +1273,79 @@ const FILL_NO_VALUE = 'no-value';
 const FILL_DEFERRED = 'deferred';
 const FILL_UNSUPPORTED = 'unsupported';
 const FILL_SKIPPED = 'skipped-existing';
+const FILL_INVALID = 'invalid';
 const FILL_FAILED = 'failed';
 
 function ok(value) { return { status: FILL_OK, value }; }
 function fail(status, value) { return { status, value: value === undefined ? null : value }; }
 
-/** Select one option in a <select>. */
-function fillSelectOne(field, option) {
-  const el = field.element;
-  const before = el.value;
-  if (before === option.value) { blurToCommit(el); return ok(option.value); }
-  setNativeInputValue(el, option.value);
-  blurToCommit(el);
-  if (el.value !== option.value) {
-    setNativeInputValue(el, before);
-    return fail(FILL_FAILED, option.value);
-  }
-  return ok(option.value);
+function canUseNativeValue(el, value) {
+  if (!el.validity || typeof value !== 'string') return false;
+  const probe = el.cloneNode(false);
+  probe.value = value;
+  return probe.validity.valid && probe.value.trim() === value.trim()
+    && (!(probe.maxLength >= 0) || value.length <= probe.maxLength);
 }
 
-/** Select several options in a <select multiple>. */
-function fillSelectMultiple(field, options) {
-  const el = field.element;
-  const before = Array.from(el.selectedOptions).map(option => option.value);
-  for (const o of Array.from(el.options)) o.selected = false;
-  for (const o of options) {
-    for (const candidate of Array.from(el.options)) {
-      if (candidate.value === o.value || candidate.textContent.trim() === o.text) {
-        candidate.selected = true;
-        break;
-      }
-    }
+function fillNativeValue(el, value) {
+  if (!canUseNativeValue(el, value)) return fail(FILL_INVALID);
+  const before = el.value;
+  setNativeInputValue(el, value);
+  blurToCommit(el);
+  if (el.validity.valid && el.value.trim() === value.trim()) return ok(value);
+  setNativeInputValue(el, before);
+  return fail(FILL_FAILED);
+}
+
+function setSelectOptions(el, wanted) {
+  if (el.multiple) {
+    for (const option of el.options) option.selected = wanted.has(option);
+  } else {
+    el.selectedIndex = Array.from(el.options).findIndex(option => wanted.has(option));
   }
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
   blurToCommit(el);
-  const nowSelected = Array.from(el.selectedOptions).map(o => o.value);
-  const wanted = options.map(o => o.value);
-  const allSet = wanted.length === nowSelected.length && wanted.every(v => nowSelected.includes(v));
-  if (allSet) return ok(wanted);
-  for (const option of Array.from(el.options)) option.selected = before.includes(option.value);
-  blurToCommit(el);
-  return fail(FILL_FAILED, nowSelected);
+}
+
+function fillSelect(field, options) {
+  const el = field.element;
+  const before = new Set(el.selectedOptions);
+  const wanted = new Set(options.map(option => option.el));
+  setSelectOptions(el, wanted);
+  const selected = Array.from(el.selectedOptions);
+  if (el.validity.valid && selected.length === wanted.size && selected.every(option => wanted.has(option))) {
+    return ok();
+  }
+  setSelectOptions(el, before);
+  return fail(FILL_FAILED);
 }
 
 /** Check exactly one radio in a group. */
 function fillRadio(field, option) {
   const target = option.el;
-  if (!target) return fail(FILL_FAILED, option.value);
+  if (!target || isControlDisabled(target)) return fail(FILL_UNSUPPORTED);
 
+  const before = field.options.find(optionIsSelected);
   if (target.tagName === 'INPUT') {
-    const before = target.checked;
     forceChecked(target, true);
-    const selected = field.options.filter(item => item.el && item.el.checked);
-    if (selected.length === 1 && selected[0].el === target) { blurToCommit(target); return ok(option.value); }
-    if (target.checked !== before) forceChecked(target, before);
-    return fail(FILL_FAILED, option.value);
+    blurToCommit(target);
+  } else if (before !== option) {
+    userClick(target);
   }
 
-  // Div/span radio (Google Forms, MS Forms)
-  userClick(target);
-  const selected = field.options.filter(item => {
-    const node = item.el;
-    return node && (node.getAttribute('aria-checked') === 'true'
-      || node.getAttribute('aria-selected') === 'true'
-      || !!node.querySelector('[aria-checked="true"], input:checked'));
-  });
-  if (selected.length === 1 && selected[0].el === target) return ok(option.value);
-  return fail(FILL_FAILED, option.value);
+  const selected = field.options.filter(optionIsSelected);
+  if (selected.length === 1 && selected[0] === option) return ok();
+  if (before?.el.tagName === 'INPUT') forceChecked(before.el, true);
+  else if (before) userClick(before.el);
+  else if (target.tagName === 'INPUT') target.checked = false;
+  return fail(FILL_FAILED);
 }
 
 /** Set a checkbox (or checkbox group) to an exact checked/unchecked state. */
-function fillCheckbox(field, option, shouldBeChecked) {
+function fillCheckbox(option, shouldBeChecked) {
   const target = option.el;
-  if (!target) return fail(FILL_FAILED, option.value);
+  if (!target || isControlDisabled(target)) return fail(FILL_UNSUPPORTED);
   if (target.tagName === 'INPUT') {
     const before = target.checked;
     forceChecked(target, shouldBeChecked);
@@ -1482,18 +1370,17 @@ function fillRichText(field, value) {
 function fillDateParts(field, rawValue) {
   const normalized = normalizeDateValue(rawValue, FIELD_KIND.DATE_PARTS, field.dateOrder);
   if (!normalized || typeof normalized !== 'object') return fail(FILL_NO_VALUE, rawValue);
-  const before = {};
-  let allSet = true;
-  for (const role of ['dd', 'mm', 'yyyy']) {
-    const input = field.dateParts[role];
-    if (!input) { allSet = false; continue; }
-    before[role] = input.value;
+  const parts = Object.entries(field.dateParts);
+  if (parts.some(([role, input]) => isControlDisabled(input) || !canUseNativeValue(input, normalized[role]))) {
+    return fail(FILL_INVALID);
+  }
+  const before = parts.map(([, input]) => input.value);
+  for (const [role, input] of parts) {
     setNativeInputValue(input, normalized[role]);
     blurToCommit(input);
-    if (String(input.value).trim() !== String(normalized[role]).trim()) allSet = false;
   }
-  if (allSet) return ok(normalized);
-  for (const [role, value] of Object.entries(before)) setNativeInputValue(field.dateParts[role], value);
+  if (parts.every(([role, input]) => input.validity.valid && input.value.trim() === normalized[role])) return ok();
+  parts.forEach(([, input], index) => setNativeInputValue(input, before[index]));
   return fail(FILL_FAILED, rawValue);
 }
 
@@ -1510,16 +1397,7 @@ function fillDateField(field, rawValue) {
   const normalized = normalizeDateValue(rawValue, kind, field.dateOrder);
   if (normalized === null || typeof normalized !== 'string') return fail(FILL_NO_VALUE, rawValue);
 
-  const before = el.value;
-  if (before === normalized) { blurToCommit(el); return ok(normalized); }
-  setNativeInputValue(el, normalized);
-  blurToCommit(el);
-  // Browsers silently reject a malformed value — so read back and compare.
-  if (String(el.value).trim() !== normalized) {
-    setNativeInputValue(el, before);
-    return fail(FILL_FAILED, normalized);
-  }
-  return ok(normalized);
+  return fillNativeValue(el, normalized);
 }
 
 function calendarViewMatches(popup, parts) {
@@ -1583,11 +1461,10 @@ function optionReadbackMatches(shown, option) {
 
 function optionIsSelected(option) {
   const node = option && option.el;
-  return !!node && (option.selected === true
-    || node.selected === true
-    || node.checked === true
+  return !!node && (node.selected === true || node.checked === true
     || node.getAttribute('aria-selected') === 'true'
-    || node.getAttribute('aria-checked') === 'true');
+    || node.getAttribute('aria-checked') === 'true'
+    || Boolean(node.querySelector('input:checked, [aria-checked="true"]')));
 }
 
 /**
@@ -1642,127 +1519,85 @@ async function fillCustomDropdown(field, option, matchData) {
   return fail(FILL_NO_OPTION, desiredText);
 }
 
-/**
- * Main entry point. Chooses the strategy for the field's kind, then verifies
- * the result by reading the control back.
- *
- * @param matchData { type, value } — value is resolved against supported options.
- */
-async function fillField(field, matchData) {
-  if (!matchData) return fail(FILL_NO_VALUE);
-  if (matchData.value === '' || matchData.value === null || matchData.value === undefined) return fail(FILL_NO_VALUE, null);
-  if (typeof matchData.value === 'string' && matchData.value.trim() === '') return fail(FILL_NO_VALUE, null);
-
-  const kind = field.kind;
-  const val = matchData.value;
-
-  // ── File inputs: cannot be scripted ──
-  if (kind === FIELD_KIND.FILE) return fail(FILL_UNSUPPORTED, 'file');
-
-  // Legal agreements and attestations are always left for the user.
-  if (field.isConsent) {
-    return fail(FILL_SKIPPED, 'consent');
+function resolveFieldChoices(field, match) {
+  const options = field.options.filter(option => !isControlDisabled(option.el));
+  const entries = toList(match.value);
+  if (field.kind === FIELD_KIND.MULTI_SELECT || (field.kind === FIELD_KIND.CHECKBOX_MULTI && entries.length > 1)) {
+    const { options: matches } = resolveMultipleOptions(options, entries);
+    return { targets: matches.filter(option => !isDeferredOption(option.text)), reason: FILL_NO_OPTION };
   }
+  const { option, reason } = resolveOption(options, match.value, match.type);
+  if (!option) return { targets: [], reason };
+  if (isDeferredOption(option.text)) return { targets: [], reason: FILL_DEFERRED };
+  return { targets: [option] };
+}
+
+function fillCheckboxGroup(field, targets) {
+  const wanted = new Set(targets.map(option => option.el));
+  const before = new Set(field.options.filter(optionIsSelected));
+  const verify = () => field.options.every(option => optionIsSelected(option) === wanted.has(option.el));
+  for (const option of field.options) {
+    const checked = wanted.has(option.el);
+    if (optionIsSelected(option) !== checked && fillCheckbox(option, checked).status !== FILL_OK) break;
+  }
+  if (verify()) return ok();
+  for (const option of field.options) {
+    if (optionIsSelected(option) !== before.has(option)) fillCheckbox(option, before.has(option));
+  }
+  return fail(FILL_FAILED);
+}
+
+function textForControl(kind, value) {
+  const text = Array.isArray(value) ? toList(value).join(', ') : String(value);
+  if (kind !== FIELD_KIND.NUMBER) return text;
+  const number = coerceNumericValue(text);
+  return number === null ? '' : String(number);
+}
+
+function hasSavedValue(match) {
+  return match?.value != null && (Array.isArray(match.value)
+    ? toList(match.value).length > 0
+    : String(match.value).trim() !== '');
+}
+
+async function fillField(field, matchData) {
+  if (!hasSavedValue(matchData)) return fail(FILL_NO_VALUE);
+
+  const { kind, element: el } = field;
+  const val = matchData.value;
+  if (kind === FIELD_KIND.FILE || isControlDisabled(el)) return fail(FILL_UNSUPPORTED);
+  if (field.isConsent) return fail(FILL_SKIPPED, 'consent');
+  if (hasUserValue(field)) return fail(FILL_SKIPPED);
 
   // ── Rich text ──
   if (kind === FIELD_KIND.RICH_TEXT) {
-    if (hasUserValue(field)) return fail(FILL_SKIPPED);
     return fillRichText(field, val);
   }
 
   // ── Dates ──
   if (DATE_KINDS.has(kind)) {
-    if (hasUserValue(field)) return fail(FILL_SKIPPED);
     return kind === FIELD_KIND.DATE_PARTS ? fillDateParts(field, val) : fillDateField(field, val);
   }
 
-  // ── Multi-value choice controls ──
-  if (kind === FIELD_KIND.MULTI_SELECT) {
-    if (hasUserValue(field)) return fail(FILL_SKIPPED);
-    // Only fill from a genuine list (profile skills/languages).
-    const { options: hits } = resolveMultipleOptions(field.options, val);
-    if (!hits.length) return fail(FILL_NO_OPTION, val);
-    return fillSelectMultiple(field, hits);
+  // Custom widgets may not render their options until opened.
+  if (kind === FIELD_KIND.CUSTOM_DROPDOWN) {
+    const desired = String(val);
+    if (isDeferredOption(desired)) return fail(FILL_DEFERRED);
+    return fillCustomDropdown(field, { text: desired, value: desired }, matchData);
   }
 
-  if (kind === FIELD_KIND.CHECKBOX_MULTI) {
-    if (hasUserValue(field)) return fail(FILL_SKIPPED);
-    const entries = toList(val);
-    let targets = [];
-    if (entries.length > 1) {
-      // A real list (skills, languages): check only what we can prove.
-      targets = resolveMultipleOptions(field.options, val).options;
-      if (!targets.length) return fail(FILL_NO_OPTION, val);
-    } else {
-      // A scalar answer: treat it as a single yes/no within the group.
-      const { option, reason } = resolveOption(field.options, val, matchData.type);
-      if (!option) return fail(reason || FILL_NO_OPTION, val);
-      targets = [option];
-    }
-    const wanted = new Set(targets.map(o => o.value));
-  let allOk = true;
-  for (const opt of field.options) {
-    if (opt.disabled) continue;
-    if (fillCheckbox(field, opt, wanted.has(opt.value)).status !== FILL_OK) allOk = false;
-  }
-  if (allOk) return ok(targets.map(o => o.value));
-  for (const opt of field.options) {
-    if (!opt.disabled) fillCheckbox(field, opt, false);
-  }
-  return fail(FILL_FAILED, targets.map(o => o.value));
-}
-
-  // ── Single-choice controls ──
   if (CHOICE_KINDS.has(kind)) {
-    if (hasUserValue(field)) return fail(FILL_SKIPPED);
-
-    // A custom dropdown is special: its options usually do not exist until the
-    // list is opened, so we cannot pick a target up front. Hand the desired
-    // text straight to the widget, which opens, reads and clicks.
-    if (kind === FIELD_KIND.CUSTOM_DROPDOWN) {
-      const desired = val;
-      if (isDeferredOption(String(desired))) return fail(FILL_DEFERRED, desired);
-      return fillCustomDropdown(field, { text: String(desired), value: String(desired) }, matchData);
-    }
-
-    const { option: target, reason } = resolveOption(field.options, val, matchData.type);
-    if (!target) return fail(reason || FILL_NO_OPTION, val);
-
-    // A "none of the above" style pick is only safe if nothing better exists,
-    // and never as a blanket default.
-    if (isDeferredOption(target.text)) {
-      return fail(FILL_DEFERRED, target.text);
-    }
-
-    if (kind === FIELD_KIND.RADIO) return fillRadio(field, target);
-    if (kind === FIELD_KIND.CHECKBOX_SINGLE) return fillCheckbox(field, target, true);
-    if (kind === FIELD_KIND.SELECT) return fillSelectOne(field, target);
-    return fail(FILL_UNSUPPORTED, target.value);
+    const { targets, reason } = resolveFieldChoices(field, matchData);
+    if (!targets.length) return fail(reason || FILL_NO_OPTION);
+    if (kind === FIELD_KIND.RADIO) return fillRadio(field, targets[0]);
+    if (kind === FIELD_KIND.CHECKBOX_SINGLE) return fillCheckbox(targets[0], true);
+    if (kind === FIELD_KIND.CHECKBOX_MULTI) return fillCheckboxGroup(field, targets);
+    return fillSelect(field, targets);
   }
 
-  // ── Plain text-ish inputs ──
-  if (hasUserValue(field)) return fail(FILL_SKIPPED);
-  const el = field.element;
-  const text = Array.isArray(val) ? toList(val).join(', ') : String(val);
-  if (kind === FIELD_KIND.NUMBER) {
-    const n = coerceNumericValue(text);
-    if (n === null) return fail(FILL_NO_VALUE, text);
-    const before = el.value;
-    setNativeInputValue(el, String(n));
-    blurToCommit(el);
-    if (String(el.value).trim() === String(n)) return ok(n);
-    setNativeInputValue(el, before);
-    return fail(FILL_FAILED, n);
-  }
-  if (kind === FIELD_KIND.CUSTOM_DROPDOWN) return fail(FILL_UNSUPPORTED, text);
-  const before = el.value;
-  setNativeInputValue(el, text);
-  blurToCommit(el);
-  if (String(el.value ?? '').trim() !== text.trim()) {
-    setNativeInputValue(el, before);
-    return fail(FILL_FAILED, text);
-  }
-  return ok(text);
+  if (!el.validity || el.readOnly) return fail(FILL_UNSUPPORTED);
+  const text = textForControl(kind, val);
+  return text ? fillNativeValue(el, text) : fail(FILL_INVALID);
 }
 
 // ═══════════════════════════════════════
@@ -1779,58 +1614,51 @@ function isSensitiveField(label) {
   return false;
 }
 
-function sendCorrection(label, value) {
-  const send = globalThis.browser
-    ? globalThis.browser.runtime.sendMessage
-    : (message) => new Promise((resolve, reject) => {
-      globalThis.chrome.runtime.sendMessage(message, (response) => {
-        const error = globalThis.chrome.runtime.lastError;
-        if (error) reject(new Error(error.message || 'Message failed'));
-        else resolve(response);
-      });
-    });
-
-  send.call(globalThis.browser || globalThis.chrome, {
-    action: 'save_correction',
-    field_label: label,
-    corrected_value: value,
-    field_kind: 'value'
-  }).catch(() => console.warn('[FormPilot] Could not save a correction locally.'));
-}
-
-function trackFieldCorrections(field, filledValue) {
+function trackFieldCorrections(field, generation, match) {
   const el = field.element;
   const label = normalizeLabel(fieldLabelOf(field));
-  if (!label) return;
-  if (isSensitiveField(label)) return;
-  if (el.type === 'password') return;
+  if (!label || isSensitiveField(label) || el.type === 'password') return;
+  const previous = filledFieldsMap.get(el);
+  const snapshot = fieldValueKey(field, currentValueOf(field));
+  filledFieldsMap.set(el, {
+    field, label, snapshot, generation, domain: match?.domain,
+    autofilled: match ? snapshot : undefined
+  });
+  if (previous) return;
 
-  const initial = filledValue === undefined || filledValue === null
-    ? currentValueOf(field)
-    : (Array.isArray(filledValue) ? filledValue.join(', ') : String(filledValue));
-
-  filledFieldsMap.set(el, { label, filledValue: initial });
-
-  if (el.dataset.formpilotTracked) return;
-  el.dataset.formpilotTracked = 'true';
-
-  const handler = () => {
-    if (isAutoFilling) return;
-    const raw = currentValueOf(field);
-    const currentValue = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '');
+  const handler = event => {
+    if (isAutoFilling || !event.isTrusted) return;
     const tracked = filledFieldsMap.get(el);
-    if (tracked && currentValue !== tracked.filledValue) {
-      tracked.filledValue = currentValue;
-      filledFieldsMap.set(el, tracked);
-      if (!isSensitiveField(tracked.label)) sendCorrection(tracked.label, currentValue);
-    }
+    const raw = currentValueOf(tracked.field);
+    const current = fieldValueKey(tracked.field, raw);
+    if (current === tracked.snapshot) return;
+    tracked.snapshot = current;
+    tracked.autofilled = undefined;
+    const value = Array.isArray(raw) ? raw.join(', ') : raw;
+    if (!value.trim() || (tracked.field.kind === FIELD_KIND.DATE_PARTS && value === '//')) return;
+    FormPilotAPI.runtime.sendMessage({
+      action: 'save_correction',
+      field_label: tracked.label,
+      corrected_value: value,
+      field_kind: CHOICE_KINDS.has(tracked.field.kind) ? 'option' : 'value',
+      domain: tracked.domain,
+      generation: tracked.generation
+    }).catch(() => console.warn('[FormPilot] Could not save a correction locally.'));
   };
 
-  el.addEventListener('blur', handler);
-  el.addEventListener('change', handler);
-  // Choice widgets live in divs; they emit click, not change.
-  if (CHOICE_KINDS.has(field.kind) || field.widgetRole === 'radiogroup' || field.widgetRole === 'checkboxgroup') {
-    el.addEventListener('click', handler);
+  if (CHOICE_KINDS.has(field.kind) || field.kind === FIELD_KIND.DATE_PARTS) {
+    const targets = new Set([field.optionsEl, ...field.options.map(option => option.el)]);
+    for (const target of targets) target.addEventListener('change', handler);
+    field.optionsEl.addEventListener('click', handler);
+  } else if (field.kind === FIELD_KIND.RICH_TEXT) {
+    let edited = false;
+    el.addEventListener('input', event => { if (event.isTrusted && !isAutoFilling) edited = true; });
+    el.addEventListener('blur', event => {
+      if (edited) handler(event);
+      edited = false;
+    });
+  } else {
+    el.addEventListener('change', handler);
   }
 }
 
@@ -1854,7 +1682,6 @@ function makeReport() {
     consent: 0,
     blocked: 0,
     unmatched: 0,
-    failures: [],
     details: []
   };
 }
@@ -1886,12 +1713,10 @@ function recordResult(report, field, result, source = '') {
       return false;
     case FILL_NO_OPTION:
       report.noOption++;
-      report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
       addFieldDetail(report, field, 'skipped', 'No supported option matched the saved value.');
       return false;
     case FILL_AMBIGUOUS:
       report.ambiguous++;
-      report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
       addFieldDetail(report, field, 'skipped', 'More than one option matched.');
       return false;
     case FILL_NO_VALUE:
@@ -1904,12 +1729,14 @@ function recordResult(report, field, result, source = '') {
       return false;
     case FILL_UNSUPPORTED:
       report.unsupported++;
-      report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
       addFieldDetail(report, field, 'skipped', 'This control needs manual input.');
+      return false;
+    case FILL_INVALID:
+      report.unsupported++;
+      addFieldDetail(report, field, 'skipped', 'The saved value does not meet this field’s requirements.');
       return false;
     default:
       report.failed++;
-      report.failures.push({ label: fieldLabelOf(field), kind: field.kind, status: result.status });
       addFieldDetail(report, field, 'failed', 'FormPilot could not verify the result.');
       return false;
   }
@@ -1945,27 +1772,28 @@ async function processField(field, ctx) {
   }
 
   const match = matchField(field, ctx.profile, ctx.corrections);
-  if (!match || match.value === '' || match.value === null || match.value === undefined) {
+  if (!hasSavedValue(match)) {
     report.unmatched++;
-    report.failures.push({ label, kind: field.kind, status: 'unmatched' });
     addFieldDetail(report, field, 'skipped', 'No unique supported profile match was found.');
-    if (!hasUserValue(field)) trackFieldCorrections(field, currentValueOf(field));
+    if (!hasUserValue(field)) trackFieldCorrections(field, ctx.generation);
     return;
   }
 
   const result = await fillField(field, match);
   const source = match.type === 'correction' ? 'Learned correction' : 'Profile';
   if (recordResult(report, field, result, source)) {
-    trackFieldCorrections(field, result.value);
+    trackFieldCorrections(field, ctx.generation, match);
     applyHighlight(field.element, 'high');
   }
 }
 
 /** The full autofill run. */
 async function runAutofill(message) {
+  injectHighlightStyles();
   const ctx = {
     profile: message.profile || {},
     corrections: Array.isArray(message.corrections) ? message.corrections : [],
+    generation: message.generation,
     report: makeReport()
   };
 
@@ -2002,191 +1830,68 @@ async function runAutofill(message) {
     isAutoFilling = false;
   }
 
-  const r = ctx.report;
-  return {
-    success: true,
-    matched: r.filled,
-    filled: r.filled,
-    needsReview: needsReviewCount(r),
-    report: reportPayload(r)
-  };
+  return { success: true, report: ctx.report };
 }
 
 // ═══════════════════════════════════════
 // DETECTION — report what could be filled, without changing the page
 // ═══════════════════════════════════════
 
+function canFillField(field, match) {
+  const { kind, element: el } = field;
+  if (kind === FIELD_KIND.CUSTOM_DROPDOWN) return !isDeferredOption(String(match.value));
+  if (CHOICE_KINDS.has(kind)) return resolveFieldChoices(field, match).targets.length > 0;
+  if (kind === FIELD_KIND.RICH_TEXT) return true;
+  if (DATE_KINDS.has(kind)) {
+    const value = normalizeDateValue(match.value, kind, field.dateOrder);
+    if (!value) return false;
+    if (kind === FIELD_KIND.DATE_PARTS) {
+      return Object.entries(field.dateParts).every(([role, part]) =>
+        !isControlDisabled(part) && canUseNativeValue(part, value[role]));
+    }
+    return el.readOnly || canUseNativeValue(el, value);
+  }
+  const text = textForControl(kind, match.value);
+  return Boolean(text && el.validity && !el.readOnly && canUseNativeValue(el, text));
+}
+
 function detectPageFields(message) {
   const profile = message.profile || {};
   const corrections = Array.isArray(message.corrections) ? message.corrections : [];
   let supportedFields = 0;
   let matchedFields = 0;
+  let existingFields = 0;
 
   for (const field of collectFields()) {
     const label = fieldLabelOf(field);
     if (!label) continue;
     if (field.element && field.element.type === 'password') continue;
     if (isSensitiveField(label)) continue;
-    if (field.isConsent) continue;
+    if (field.isConsent || isControlDisabled(field.element)) continue;
     if (field.kind === FIELD_KIND.FILE) continue;
 
     supportedFields++;
     const match = matchField(field, profile, corrections);
-    if (match && match.value !== '' && match.value !== null && match.value !== undefined) {
-      matchedFields++;
-    }
+    if (!hasSavedValue(match)) continue;
+    if (hasUserValue(field)) existingFields++;
+    else if (canFillField(field, match)) matchedFields++;
   }
 
-  return { success: true, supportedFields, matchedFields };
+  return { success: true, supportedFields, matchedFields, existingFields };
 }
-
-// ═══════════════════════════════════════
-// FRAME ORCHESTRATION
-// The tab's top frame coordinates the work; embedded frames fill their own
-// document and answer their parent.
-// ═══════════════════════════════════════
-
-function frameSessionId() {
-  return `fp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function relayPayload(message) {
-  return {
-    profile: message.profile || {},
-    corrections: Array.isArray(message.corrections) ? message.corrections : []
-  };
-}
-
-function collectChildResults(children, reports) {
-  let unreachable = children.unreachable;
-  for (const result of children.results) {
-    if (!result) continue;
-    if (result.report) reports.push(result.report);
-    unreachable += Number(result.unreachableFrames) || 0;
-  }
-  return unreachable;
-}
-
-async function runAutofillEverywhere(message) {
-  const local = await runAutofill(message);
-  const children = await relayToEmbeddedFrames(frameSessionId(), 'autofill', relayPayload(message));
-  const reports = [local.report];
-  const unreachable = collectChildResults(children, reports);
-  const merged = mergeReports(reports);
-  return {
-    success: true,
-    matched: merged.filled,
-    filled: merged.filled,
-    needsReview: needsReviewCount(merged),
-    report: reportPayload(merged),
-    unreachableFrames: unreachable
-  };
-}
-
-async function detectEverywhere(message) {
-  const local = detectPageFields(message);
-  const children = await relayToEmbeddedFrames(frameSessionId(), 'detect', relayPayload(message));
-  let supportedFields = local.supportedFields;
-  let matchedFields = local.matchedFields;
-  let unreachable = children.unreachable;
-  for (const result of children.results) {
-    if (!result) continue;
-    supportedFields += Number(result.supportedFields) || 0;
-    matchedFields += Number(result.matchedFields) || 0;
-    unreachable += Number(result.unreachableFrames) || 0;
-  }
-  return { success: true, supportedFields, matchedFields, unreachableFrames: unreachable };
-}
-
-// A child frame fills its own document, relays the same request to its own
-// children, and answers its parent with the combined result.
-async function handleFrameRequest(request) {
-  const payload = request.payload || {};
-  if (request.action === 'autofill') {
-    const local = await runAutofill({ profile: payload.profile, corrections: payload.corrections });
-    const children = await relayToEmbeddedFrames(request.id, 'autofill', payload);
-    const reports = [local.report];
-    const unreachable = collectChildResults(children, reports);
-    const merged = mergeReports(reports);
-    return {
-      success: true,
-      report: reportPayload(merged),
-      unreachableFrames: unreachable
-    };
-  }
-  if (request.action === 'detect') {
-    const local = detectPageFields({ profile: payload.profile, corrections: payload.corrections });
-    const children = await relayToEmbeddedFrames(request.id, 'detect', payload);
-    let supportedFields = local.supportedFields;
-    let matchedFields = local.matchedFields;
-    let unreachable = children.unreachable;
-    for (const result of children.results) {
-      if (!result) continue;
-      supportedFields += Number(result.supportedFields) || 0;
-      matchedFields += Number(result.matchedFields) || 0;
-      unreachable += Number(result.unreachableFrames) || 0;
-    }
-    return { success: true, supportedFields, matchedFields, unreachableFrames: unreachable };
-  }
-  return null;
-}
-
-if (!IS_TAB_TOP_FRAME) {
-  window.addEventListener('message', async event => {
-    if (event.source !== window.parent) return;
-    const data = event.data;
-    if (!data || data.__formpilot !== FRAME_CHANNEL || data.kind !== 'request') return;
-    const reply = { __formpilot: FRAME_CHANNEL, kind: 'reply', id: data.id, ok: false, result: null };
-    try {
-      reply.result = await handleFrameRequest(data);
-      reply.ok = Boolean(reply.result);
-    } catch (error) {
-      reply.error = error.message;
-    }
-    try {
-      window.parent.postMessage(reply, '*');
-    } catch (error) { /* the parent went away */ }
-  });
-}
-
-// ═══════════════════════════════════════
-// MESSAGE HANDLER — responds to an explicit toolbar action
-// ═══════════════════════════════════════
 
 FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'ping') {
-    sendResponse({ formpilot: true });
+  if (sender.id !== FormPilotAPI.runtime.id || sender.tab || message?.origin !== window.origin) return false;
+  if (message.action === 'detect') {
+    sendResponse(detectPageFields(message));
     return false;
   }
-
-  // Only the tab's top frame answers toolbar messages. Embedded frames are
-  // reached through the frame relay instead.
-  if (!IS_TAB_TOP_FRAME) return false;
-
-  if (message.action === 'detect') {
-    detectEverywhere(message).then(result => {
-      sendResponse(result);
-    }).catch(err => {
-      sendResponse({ success: false, error: err.message });
-    });
-    return true;
-  }
-
   if (message.action === 'autofill') {
-    if (!message.profile) {
-      sendResponse({ success: false, error: 'No profile data received.' });
-      return true;
-    }
-    runAutofillEverywhere(message).then(result => {
-      sendResponse(result);
-    }).catch(err => {
-      console.error('[FormPilot] Autofill failed:', err);
-      isAutoFilling = false;
-      sendResponse({ success: false, error: err.message });
+    runAutofill(message).then(sendResponse).catch(() => {
+      sendResponse({ success: false, error: 'FormPilot could not complete the fill.' });
     });
     return true;
   }
-
   return false;
 });
 
@@ -2195,7 +1900,6 @@ FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ═══════════════════════════════════════
 
 (function init() {
-  currentPlatform = detectPlatform();
-  injectHighlightStyles();
-  collectFields();
+  currentPlatform = detectFormPlatform(window.location);
+  globalThis.formPilotContentReady = true;
 })();

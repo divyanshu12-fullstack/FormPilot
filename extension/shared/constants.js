@@ -2,6 +2,17 @@
 // Field types, keyword maps, option semantics, and value normalizers.
 // Loaded before content_script.js and widgets.js in the manifest.
 
+function detectFormPlatform({ hostname, pathname }) {
+  if (hostname === 'forms.google.com'
+    || (hostname === 'docs.google.com' && (pathname === '/forms' || pathname.startsWith('/forms/')))) {
+    return 'google-forms';
+  }
+  if (['forms.cloud.microsoft', 'forms.office.com', 'forms.microsoft.com'].includes(hostname)) {
+    return 'ms-forms';
+  }
+  return 'generic';
+}
+
 const FIELD_TYPES = {
   // Identity
   FIRST_NAME: 'first_name',

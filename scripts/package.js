@@ -1,6 +1,7 @@
 // Builds the store packages from extension/.
 //
 //   node scripts/package.js
+//   node scripts/package.js --edge
 //
 // Produces:
 //   dist/formpilot-edge-<version>.zip     Chromium/Edge manifest (service worker)
@@ -176,21 +177,23 @@ function main() {
   const base = JSON.parse(fs.readFileSync(path.join(SOURCE_DIR, 'manifest.json'), 'utf8'));
   const version = base.version;
   const files = collectFiles(SOURCE_DIR);
-
-  fs.rmSync(STAGING_DIR, { recursive: true, force: true });
-  fs.mkdirSync(STAGING_DIR, { recursive: true });
-
+  const edgeOnly = process.argv.includes('--edge');
+  fs.mkdirSync(DIST_DIR, { recursive: true });
   const packages = [
     { name: `formpilot-edge-${version}.zip`, manifest: edgeManifest(base) },
-    { name: `formpilot-firefox-${version}.zip`, manifest: firefoxManifest(base) },
   ];
+  if (!edgeOnly) {
+    packages.push({ name: `formpilot-firefox-${version}.zip`, manifest: firefoxManifest(base) });
+  }
 
   for (const item of packages) {
     const { target, count } = writePackage(item.name, item.manifest, files);
     console.log(`wrote ${path.relative(ROOT, target)} (${count} files, ${fs.statSync(target).size} bytes)`);
   }
+  if (edgeOnly) return;
 
   // Keep an unpacked copy of the Firefox build so web-ext lint can inspect it.
+  fs.rmSync(STAGING_DIR, { recursive: true, force: true });
   const firefoxDir = path.join(STAGING_DIR, 'firefox');
   fs.mkdirSync(firefoxDir, { recursive: true });
   for (const file of files) {

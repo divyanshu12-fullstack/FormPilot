@@ -87,6 +87,8 @@ const selectVal = id => { const el = T(id); return el ? el.value : '(missing)'; 
 const selectText = id => { const el = T(id); return el && el.selectedIndex >= 0 ? el.options[el.selectedIndex].text : ''; };
 const selectedValues = id => { const el = T(id); return el ? Array.from(el.selectedOptions).map(o => o.value).join(',') : '(missing)'; };
 const inputVal = id => { const el = T(id); return el ? el.value : '(missing)'; };
+const checked = id => String(T(id).checked);
+const fixtureFacts = {};
 const triggerText = sel => { const el = Q(sel); return el ? (el.textContent || '').trim() : '(missing)'; };
 /* The aria-haspopup fixture's trigger wraps its own (hidden) option list, so
    its value lives in the inner badge rather than in textContent. */
@@ -118,11 +120,13 @@ const EXPECTATIONS = [
   { g: 'Native radio', n: 'Label taken from <legend>', want: 'Yes', read: () => radioValue('fp_auth') },
   { g: 'Native radio', n: 'Label taken from a nearby heading', want: 'Single', read: () => radioValue('fp_marital') },
   { g: 'Native radio', n: 'Exactly one option stays checked', want: '1', read: () => String(radioCount('fp_gender')) },
+  { g: 'Native radio', n: 'Same name in a different form keeps its own group', want: 'true,true', read: () => [checked('rg_gender'), checked('rg_marital')].join(',') },
 
   // Checkbox
   { g: 'Checkbox', n: 'Group matches profile skills only', want: 'JavaScript,Python,React', read: () => checkedValues('fp_lang').sort().join(',') },
   { g: 'Checkbox', n: 'A skill not in the profile is left alone', want: 'false', read: () => String(checkedValues('fp_lang').includes('Java')) },
   { g: 'Checkbox', n: 'Consent boxes are never auto-ticked', want: '0', read: () => String(consentTicked()) },
+  { g: 'Checkbox', n: 'Shared default value selects only the matched checkbox', want: 'true,false', read: () => [checked('check_skill'), checked('check_other')].join(',') },
 
   // Select
   { g: 'Select', n: 'Country matched on option text', want: 'IN', read: () => selectVal('fp_country') },
@@ -160,7 +164,12 @@ const EXPECTATIONS = [
 
   // Reach
   { g: 'Reach', n: 'select inside an open shadow root', want: 'Bhopal', read: () => shadowCity() },
-  { g: 'Reach', n: 'same-origin iframe', want: 'ada@example.com', read: () => iframeEmail() }
+  { g: 'Reach', n: 'same-origin iframe', want: 'ada@example.com', read: () => iframeEmail() },
+
+  { g: 'Safety', n: 'Input inside disabled fieldset stays blank', want: '', read: () => inputVal('disabled_email') },
+  { g: 'Safety', n: 'Value above the maximum is skipped with a reason', want: 'blank,skipped', read: () => fixtureFacts.rangeCheck },
+  { g: 'Safety', n: 'Detection excludes a prefilled field from matches', want: '1,0,1', read: () => fixtureFacts.prefillCheck },
+  { g: 'Safety', n: 'Repeat fill preserves an edit to a previously filled value', want: 'ada@example.com,manual@example.test', read: () => fixtureFacts.repeatCheck }
 ];
 
 /* ── Harness ── */
@@ -168,6 +177,7 @@ const SHARED = ['../shared/constants.js', '../shared/matching.js', '../shared/wi
 function installWebExtensionStub(win) {
   win.browser = {
     runtime: {
+      id: 'harness',
       onMessage: { addListener: fn => { win.__fpHandler = fn; } },
       sendMessage: async () => ({ success: true })
     }
@@ -196,31 +206,49 @@ async function injectScripts(win) {
   }
 }
 
-// The tab's top frame coordinates the fill, so every same-origin frame of the
-// page needs the content script.
 async function prepareFrame(win) {
   installWebExtensionStub(win);
   await injectScripts(win);
+  const descendants = [win];
   for (const frame of win.document.querySelectorAll('iframe, frame')) {
-    let child = null;
-    try {
-      child = frame.contentWindow;
-      void frame.contentDocument;
-    } catch (error) {
-      continue;
-    }
-    if (child) await prepareFrame(child);
+    if (frame.contentDocument) descendants.push(...await prepareFrame(frame.contentWindow));
   }
+  return descendants;
 }
 
-function runAutofillHarness(win) {
+function sendFrameRequest(win, action, profile = PROFILE) {
   return new Promise((resolve, reject) => {
     const handler = win.__fpHandler;
     if (!handler) { reject(new Error('content script did not register a message handler')); return; }
-    // Mirror runtime.onMessage: (message, sender, sendResponse).
-    handler({ action: 'autofill', profile: PROFILE, corrections: [] }, { id: 'harness' }, resolve);
-    setTimeout(() => reject(new Error('autofill timed out after 40s')), 40000);
+    const timer = setTimeout(() => reject(new Error(action + ' timed out')), 40000);
+    handler({ action, origin: win.origin, profile, corrections: [] }, { id: 'harness' }, result => {
+      clearTimeout(timer);
+      if (result?.success) resolve(result);
+      else reject(new Error(result?.error || 'No form report received'));
+    });
   });
+}
+
+function addRegressionFixtures() {
+  D().body.insertAdjacentHTML('beforeend', `
+    <form><fieldset><legend>Gender</legend>
+      <label><input type="radio" id="rg_gender" name="answer" value="Female">Female</label>
+      <label><input type="radio" name="answer" value="Male">Male</label>
+    </fieldset></form>
+    <form><fieldset><legend>Marital status</legend>
+      <label><input type="radio" id="rg_marital" name="answer" value="Single">Single</label>
+      <label><input type="radio" name="answer" value="Married">Married</label>
+    </fieldset></form>
+    <form><fieldset><legend>Skills</legend>
+      <label><input type="checkbox" id="check_skill">JavaScript</label>
+      <label><input type="checkbox" id="check_other">Go</label>
+    </fieldset></form>
+    <fieldset disabled><legend>Registration</legend><label>Email <input id="disabled_email" type="email"></label></fieldset>
+    <label>Years of experience <input id="range_years" type="number" max="1"></label>
+    <label>Email <input id="repeat_email" type="email"></label>
+  `);
+  window.document.body.insertAdjacentHTML('beforeend',
+    '<label>Email <input type="email" value="already-entered@example.test"></label>');
 }
 
 const runBtn = document.getElementById('run');
@@ -237,17 +265,32 @@ async function runSuite() {
   sum.className = '';
   rows.innerHTML = '';
 
-  let report = null, error = null;
+  let reports = [], error = null;
   try {
-    await prepareFrame(window);
-    report = await runAutofillHarness(window);
+    addRegressionFixtures();
+    const windows = await prepareFrame(window);
+    const preview = await sendFrameRequest(window, 'detect');
+    fixtureFacts.prefillCheck = [preview.supportedFields, preview.matchedFields, preview.existingFields].join(',');
+    reports = (await Promise.all(windows.map(win => sendFrameRequest(win, 'autofill')))).map(result => result.report);
+    const rangeDetail = reports.flatMap(report => report.details)
+      .find(detail => detail.label === 'Years of experience' && detail.reason.includes('requirements'));
+    fixtureFacts.rangeCheck = (inputVal('range_years') || 'blank') + ',' + (rangeDetail?.status || 'missing');
+    const firstEmail = inputVal('repeat_email');
+    T('repeat_email').value = 'manual@example.test';
+    await sendFrameRequest(frame.contentWindow, 'autofill');
+    fixtureFacts.repeatCheck = [firstEmail, inputVal('repeat_email')].join(',');
   } catch (e) {
     error = e;
   }
 
   if (error) {
-    rows.innerHTML = '<tr class="no"><td>ERR</td><td colspan="3" class="err">' + error.message +
-      '<br><small>Open the bench frame devtools console for the content script log.</small></td></tr>';
+    const row = rows.insertRow();
+    row.className = 'no';
+    row.dataset.result = 'ERR';
+    row.insertCell().textContent = 'ERR';
+    const message = row.insertCell();
+    message.colSpan = 3;
+    message.textContent = error.message;
     sum.textContent = 'Harness error: ' + error.message;
     sum.className = 'fail';
     btn.disabled = false;
@@ -273,7 +316,10 @@ async function runSuite() {
     rows.appendChild(tr);
   }
 
-  const r = (report && report.report) || {};
+  const r = {};
+  for (const key of ['filled', 'noOption', 'noValue', 'skipped', 'consent', 'failed']) {
+    r[key] = reports.reduce((sum, report) => sum + report[key], 0);
+  }
   sum.textContent = pass + ' passed, ' + fail + ' failed' + (manual ? ', ' + manual + ' manual' : '') +
     '  •  extension reported: ' + r.filled + ' filled, ' + r.noOption + ' no-option, ' +
     r.noValue + ' no-value, ' + r.skipped + ' skipped, ' + r.consent + ' consent, ' + r.failed + ' failed';

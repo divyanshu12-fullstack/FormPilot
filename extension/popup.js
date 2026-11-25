@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const api = globalThis.browser || globalThis.chrome;
+  let tabId;
   const els = {
     host: document.getElementById('page-host'),
     card: document.getElementById('status-card'),
@@ -53,7 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     els.counts.replaceChildren();
     els.counts.appendChild(countChip(filled, 'filled', 'chip-success'));
-    if (skipped > 0) els.counts.appendChild(countChip(skipped, 'skipped', 'chip'));
+    if (skipped > 0) els.counts.appendChild(countChip(skipped, 'skipped'));
     if (failed > 0) els.counts.appendChild(countChip(failed, 'failed', 'chip-danger'));
 
     const details = Array.isArray(report.details) ? report.details : [];
@@ -115,7 +116,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function countChip(value, label, className) {
     const chip = document.createElement('span');
-    chip.className = className;
+    chip.classList.add('chip');
+    if (className) chip.classList.add(className);
     chip.textContent = `${value} ${label}`;
     return chip;
   }
@@ -128,7 +130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let next;
     try {
-      const result = await api.runtime.sendMessage({ action: 'run_autofill' });
+      const result = await api.runtime.sendMessage({ action: 'run_autofill', tabId });
       if (!result || !result.success) {
         next = {
           state: 'blocked',
@@ -161,6 +163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const tabs = await api.tabs.query({ active: true, currentWindow: true });
       const tab = tabs && tabs[0];
+      tabId = tab?.id;
       url = tab && tab.url ? new URL(tab.url) : null;
     } catch (error) { /* treat as unsupported */ }
 
@@ -169,10 +172,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let hasProfile = false;
     try {
-      const profile = await FormPilotStore.loadProfile();
-      hasProfile = Object.values(profile).some(value => Array.isArray(value)
-        ? value.length > 0
-        : value !== null && value !== undefined && String(value).trim() !== '');
+      const { profile, corrections } = await FormPilotStore.loadUserData();
+      hasProfile = FormPilotStore.hasProfileValue(profile)
+        || corrections.some(item => !item.domain || item.domain === url?.hostname);
     } catch (error) { /* treat as empty */ }
 
     if (!hasProfile) {
@@ -191,7 +193,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let detection = null;
     try {
-      detection = await api.runtime.sendMessage({ action: 'detect_fields' });
+      detection = await api.runtime.sendMessage({ action: 'detect_fields', tabId });
     } catch (error) { detection = null; }
 
     if (!detection || !detection.success) {
@@ -201,6 +203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const supported = Number(detection.supportedFields) || 0;
     const matched = Number(detection.matchedFields) || 0;
+    const existing = Number(detection.existingFields) || 0;
     const unreachable = Number(detection.unreachableFrames) || 0;
 
     if (supported === 0 && unreachable > 0) {
@@ -214,13 +217,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (matched === 0) {
-      setState('warn', 'Nothing to fill yet', "Your saved information doesn't match the fields on this page.", {
+      const detail = existing > 0
+        ? 'Matching fields already have values.'
+        : 'No empty fields have a supported match for your saved details.';
+      setState('warn', 'Nothing to fill yet', detail, {
         secondary: { label: 'Edit profile', onClick: openSettings }
       });
       return;
     }
 
-    setState('ready', 'Ready to fill', 'FormPilot found supported fields on this page.', {
+    const detail = unreachable > 0
+      ? `FormPilot found fields to fill. It could not inspect ${unreachable} embedded frame${unreachable === 1 ? '' : 's'}.`
+      : 'FormPilot found fields it can fill on this page.';
+    setState('ready', 'Ready to fill', detail, {
       primary: { label: 'Fill this page', onClick: fillPage }
     });
   }

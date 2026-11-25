@@ -13,42 +13,84 @@ const CONTENT_FILES = [
   'content_script.js'
 ];
 
-async function hasContentScript(tabId) {
+const REPORT_COUNTERS = [
+  'totalFields', 'filled', 'ambiguous', 'noOption', 'noValue', 'deferred',
+  'unsupported', 'skipped', 'failed', 'consent', 'blocked', 'unmatched'
+];
+const tabOperations = new Map();
+
+function describeFrame() {
+  // This probe runs in the extension's isolated world without any user data.
   try {
-    const response = await FormPilotAPI.tabs.sendMessage(tabId, { action: 'ping' });
-    return Boolean(response && response.formpilot);
+    for (let frame = window; frame !== window.top; frame = frame.parent) {
+      void frame.parent.document;
+    }
   } catch (error) {
-    return false;
+    return null;
   }
+  return {
+    origin: window.origin,
+    children: window.length,
+    ready: globalThis.formPilotContentReady === true
+  };
 }
 
-async function injectContentScript(tabId) {
+async function messageTab(tab, message) {
+  const origin = new URL(tab.url || '').origin;
+  const tabId = tab.id;
+  let frames;
   try {
-    // allFrames reaches same-origin embedded forms. Cross-origin frames are
-    // skipped because the extension holds no host permissions for them.
-    await FormPilotAPI.scripting.executeScript({
+    frames = await FormPilotAPI.scripting.executeScript({
       target: { tabId, allFrames: true },
-      files: CONTENT_FILES
+      world: 'ISOLATED',
+      func: describeFrame
     });
-    return;
   } catch (error) {
-    // One blocked frame can fail the whole call; fall back to the top frame.
-    if (await hasContentScript(tabId)) return;
+    frames = await FormPilotAPI.scripting.executeScript({
+      target: { tabId },
+      world: 'ISOLATED',
+      func: describeFrame
+    });
   }
-  await FormPilotAPI.scripting.executeScript({
-    target: { tabId },
-    files: CONTENT_FILES
-  });
-}
+  const eligible = frames.filter(frame => frame.result?.origin === origin);
+  if (!eligible.some(frame => frame.frameId === 0)) {
+    throw new Error('The page changed. Reopen FormPilot and try again.');
+  }
+  const results = await Promise.allSettled(eligible.map(async frame => {
+    const { frameId, documentId } = frame;
+    if (!frame.result.ready) {
+      await FormPilotAPI.scripting.executeScript({
+        target: documentId ? { tabId, documentIds: [documentId] } : { tabId, frameIds: [frameId] },
+        world: 'ISOLATED',
+        files: CONTENT_FILES
+      });
+    }
+    const response = await FormPilotAPI.tabs.sendMessage(tabId, { ...message, origin },
+      documentId ? { documentId } : { frameId });
+    if (!response?.success) throw new Error(response?.error || 'FormPilot could not read the frame.');
+    return response;
+  }));
 
-async function messageTab(tabId, message) {
-  try {
-    return await FormPilotAPI.tabs.sendMessage(tabId, message);
-  } catch (error) {
-    // Content scripts are injected only after the user invokes FormPilot.
-    await injectContentScript(tabId);
-    return FormPilotAPI.tabs.sendMessage(tabId, message);
+  const main = results[eligible.findIndex(frame => frame.frameId === 0)];
+  if (main.status === 'rejected') throw main.reason;
+  const reachable = results.filter(result => result.status === 'fulfilled').map(result => result.value);
+  const frameCount = eligible.reduce((sum, frame) => sum + frame.result.children, 0);
+  const unreachableFrames = Math.max(0, frameCount - (reachable.length - 1));
+  if (message.action === 'detect') {
+    return reachable.reduce((totals, result) => {
+      totals.supportedFields += result.supportedFields;
+      totals.matchedFields += result.matchedFields;
+      totals.existingFields += result.existingFields;
+      return totals;
+    }, { success: true, supportedFields: 0, matchedFields: 0, existingFields: 0, unreachableFrames });
   }
+
+  const report = Object.fromEntries(REPORT_COUNTERS.map(key => [key, 0]));
+  for (const { report: local } of reachable) {
+    for (const key of REPORT_COUNTERS) report[key] += local[key];
+  }
+  report.details = reachable.flatMap(result => result.report.details).slice(0, 50);
+  return { success: true, report, unreachableFrames };
 }
 
 async function setTabBadge(tabId, text) {
@@ -60,51 +102,48 @@ async function setTabBadge(tabId, text) {
 }
 
 async function runAutofill(tab) {
-  const [profile, allCorrections] = await Promise.all([
-    FormPilotStore.loadProfile(),
-    FormPilotStore.loadCorrections()
-  ]);
-  let domain = '';
-  try { domain = new URL(tab.url || '').hostname.toLowerCase(); } catch (error) { /* unsupported page */ }
-  const corrections = allCorrections.filter(item => item.domain === domain);
-
-  const hasProfileValue = Object.values(profile).some(value => Array.isArray(value)
-    ? value.length > 0
-    : value !== null && value !== undefined && String(value).trim() !== '');
-  if (!hasProfileValue) {
+  const data = await dataForTab(tab);
+  if (!FormPilotStore.hasProfileValue(data.profile) && !data.corrections.length) {
     await setTabBadge(tab.id, '');
     return { success: false, error: 'Add profile details before filling a form.' };
   }
 
-  const result = await messageTab(tab.id, {
-    action: 'autofill',
-    profile,
-    corrections
-  });
-
-  if (!result || !result.success) {
+  try {
+    const result = await messageTab(tab, { action: 'autofill', ...data });
+    await setTabBadge(tab.id, result.report.filled || '');
+    return result;
+  } catch (error) {
     await setTabBadge(tab.id, '!');
-    return result || { success: false, error: 'FormPilot did not receive a fill report.' };
+    throw error;
   }
-  await setTabBadge(tab.id, result.report && result.report.filled ? result.report.filled : '');
-  return result;
 }
 
 async function detectFields(tab) {
-  const [profile, allCorrections] = await Promise.all([
-    FormPilotStore.loadProfile(),
-    FormPilotStore.loadCorrections()
-  ]);
-  let domain = '';
-  try { domain = new URL(tab.url || '').hostname.toLowerCase(); } catch (error) { /* unsupported page */ }
-  const corrections = allCorrections.filter(item => item.domain === domain);
+  return messageTab(tab, { action: 'detect', ...await dataForTab(tab) });
+}
 
-  const result = await messageTab(tab.id, {
-    action: 'detect',
-    profile,
-    corrections
-  });
-  return { success: true, ...(result || {}) };
+async function dataForTab(tab) {
+  const domain = new URL(tab.url || '').hostname;
+  const { profile, corrections, generation } = await FormPilotStore.loadUserData();
+  // Keep any older site-specific correction ahead of the global fallback.
+  const scoped = corrections.filter(item => item.domain === domain);
+  const global = corrections.filter(item => item.domain === '');
+  return { profile, corrections: [...scoped, ...global], generation };
+}
+
+async function forActiveTab(expectedId, operation) {
+  const [tab] = await FormPilotAPI.tabs.query({ active: true, currentWindow: true });
+  if (!tab || tab.id !== expectedId || !/^https?:\/\//.test(tab.url || '')) {
+    throw new Error('The active page changed. Reopen FormPilot and try again.');
+  }
+  const previous = tabOperations.get(tab.id);
+  const work = (previous ? previous.catch(() => {}) : Promise.resolve()).then(() => operation(tab));
+  tabOperations.set(tab.id, work);
+  try {
+    return await work;
+  } finally {
+    if (tabOperations.get(tab.id) === work) tabOperations.delete(tab.id);
+  }
 }
 
 function correctionDomain(sender) {
@@ -119,26 +158,11 @@ function correctionDomain(sender) {
 FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || sender.id !== FormPilotAPI.runtime.id) return false;
 
-  if (message.action === 'run_autofill') {
-    FormPilotAPI.tabs.query({ active: true, currentWindow: true })
-      .then(tabs => {
-        const tab = tabs && tabs[0];
-        if (!tab || typeof tab.id !== 'number') throw new Error('No active page is available.');
-        return runAutofill(tab);
-      })
-      .then(result => sendResponse(result))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-  if (message.action === 'detect_fields') {
-    FormPilotAPI.tabs.query({ active: true, currentWindow: true })
-      .then(tabs => {
-        const tab = tabs && tabs[0];
-        if (!tab || typeof tab.id !== 'number') throw new Error('No active page is available.');
-        return detectFields(tab);
-      })
-      .then(result => sendResponse(result))
+  if (message.action === 'run_autofill' || message.action === 'detect_fields') {
+    if (sender.url !== FormPilotAPI.runtime.getURL('popup.html')) return false;
+    const operation = message.action === 'run_autofill' ? runAutofill : detectFields;
+    forActiveTab(message.tabId, operation)
+      .then(sendResponse)
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
@@ -147,17 +171,17 @@ FormPilotAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const domain = correctionDomain(sender);
     const label = String(message.field_label || '').trim().slice(0, 200);
     const value = String(message.corrected_value || '').slice(0, 5000);
-    if (!domain || !label || !value) {
+    if (typeof sender.tab?.id !== 'number' || !domain || !label || !value.trim()) {
       sendResponse({ success: false, error: 'Correction is incomplete.' });
       return false;
     }
 
     FormPilotStore.saveCorrection({
-      domain: '',
+      domain: message.domain === domain ? domain : '',
       field_label: label,
       corrected_value: value,
       field_kind: message.field_kind
-    }).then(() => sendResponse({ success: true }))
+    }, message.generation).then(saved => sendResponse({ success: saved }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }

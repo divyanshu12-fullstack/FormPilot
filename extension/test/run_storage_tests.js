@@ -1,5 +1,6 @@
-  // Smoke tests for local profile and global correction persistence.
-  const assert = require('node:assert/strict');
+// Smoke tests for local profile, corrections, and backup persistence.
+const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -17,6 +18,7 @@ const storage = {
 
 const sandbox = {
   browser: { storage: { local: storage }, runtime: {} },
+  crypto: { randomUUID },
   console,
   Date,
   Promise,
@@ -32,30 +34,50 @@ vm.runInNewContext(
 
 async function run() {
   const store = sandbox.FormPilotStore;
-  await store.saveProfile({ email: 'ada@example.com', skills: ['JS', 'Python'] });
+  const { generation } = await store.loadProfileState();
+  await Promise.all([
+    store.saveProfileChanges({ email: 'ada@example.com' }, generation),
+    store.saveProfileChanges({ first_name: 'Ada', skills: ['JS', 'Python'] }, generation)
+  ]);
   assert.equal((await store.loadProfile()).email, 'ada@example.com');
+  assert.equal((await store.loadProfile()).first_name, 'Ada');
 
-  await store.saveCorrection({ domain: 'example.com', field_label: 'email address', corrected_value: 'ada@work.test' });
-  await store.saveCorrection({ domain: 'example.com', field_label: 'phone number', corrected_value: '+91 99999 88888' });
-  // Same field label on a different site replaces the previous correction (global, not per-site).
-  await store.saveCorrection({ domain: 'other.example', field_label: 'email address', corrected_value: 'ada@other.test' });
-  assert.equal((await store.loadCorrections()).length, 2);
+  const globalEmail = { domain: '', field_label: 'email address', corrected_value: 'ada@work.test' };
+  await Promise.all([
+    store.saveCorrection(globalEmail, generation),
+    store.saveCorrection({ domain: '', field_label: 'phone number', corrected_value: '+91 99999 88888' }, generation),
+    store.saveCorrection({ ...globalEmail, domain: 'example.com', corrected_value: 'ada@scoped.test' }, generation)
+  ]);
+  await store.saveCorrection({ ...globalEmail, field_label: 'Email address?', corrected_value: 'ada@other.test' }, generation);
+  assert.equal((await store.loadCorrections()).length, 3);
 
-  await store.updateCorrection('email address', 'ada@updated.test');
+  await store.updateCorrection('', 'email address', 'ada@updated.test');
   const backup = await store.exportData();
   assert.equal(backup.profile.email, 'ada@example.com');
-  assert.equal(backup.corrections.find(item => item.field_label === 'email address').corrected_value, 'ada@updated.test');
+  assert.equal(backup.corrections.find(item => !item.domain && /email/i.test(item.field_label)).corrected_value, 'ada@updated.test');
 
-  await store.clearUserData();
+  const [, staleProfile, staleCorrection] = await Promise.all([
+    store.clearUserData(),
+    store.saveProfileChanges({ email: 'stale@example.test' }, generation),
+    store.saveCorrection(globalEmail, generation)
+  ]);
+  assert.equal(staleProfile, false);
+  assert.equal(staleCorrection, false);
   assert.deepEqual(JSON.parse(JSON.stringify(await store.loadProfile())), {});
   assert.equal((await store.loadCorrections()).length, 0);
 
+  const clearedGeneration = (await store.loadProfileState()).generation;
   await store.importData(backup);
+  assert.equal(await store.saveProfileChanges({ email: 'stale@example.test' }, clearedGeneration), false);
+  await assert.rejects(store.importData({ ...backup, version: 2 }), /not a valid FormPilot backup/);
+  await assert.rejects(store.importData({ ...backup, profile: { email: {} } }), /not a valid FormPilot backup/);
   assert.equal((await store.loadProfile()).email, 'ada@example.com');
-  await store.deleteCorrection('email address');
+  await store.deleteCorrection('', 'email address');
   const remaining = await store.loadCorrections();
-  assert.equal(remaining.length, 1);
+  assert.equal(remaining.length, 2);
   assert.equal(remaining[0].field_label, 'phone number');
+  assert.equal(remaining[1].domain, 'example.com');
+  assert.equal(remaining[1].corrected_value, 'ada@scoped.test');
 
   await store.clearUserData();
   assert.equal((await store.loadCorrections()).length, 0);

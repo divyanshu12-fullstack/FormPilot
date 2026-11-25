@@ -128,6 +128,7 @@ function cleanup() {
 
     const rowsRes = await send('Runtime.evaluate', {
       expression: `Array.from(document.querySelectorAll('#rows tr[data-result]')).map(function(tr){
+        if (tr.dataset.result === 'ERR') return 'ERR | ' + tr.children[1].textContent.trim();
         return tr.dataset.result + ' | ' + tr.children[1].textContent + ' | ' + tr.children[2].textContent.replace(/\\s+/g,' ').trim() + ' | got: ' + tr.children[3].textContent;
       })`,
       returnByValue: true,
@@ -149,9 +150,10 @@ function cleanup() {
       for (const r of rows) console.log(r);
       const fails = rows.filter(r => r.startsWith('FAIL')).length;
       const err = rows.filter(r => r.startsWith('ERR')).length;
+      const passes = rows.filter(r => r.startsWith('PASS')).length;
       console.log('---');
-      console.log(`${rows.length - fails} non-failing, ${fails} failing, ${err} errors`);
-      code = (fails || err) ? 1 : 0;
+      console.log(`${passes} passing, ${fails} failing, ${err} errors`);
+      code = (fails || err || !passes || summary.startsWith('Harness error:')) ? 1 : 0;
     }
 
     ws.close();

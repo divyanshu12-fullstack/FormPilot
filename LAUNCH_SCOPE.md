@@ -17,7 +17,8 @@ FormPilot is a local-first, user-triggered form autofiller. It fills supported f
 - A user-managed profile stored in the browser's local extension storage.
 - User-triggered autofill with a clear summary of filled, skipped, and failed fields.
 - Conservative matching from exact labels, reviewed aliases, known field signatures, and user-confirmed corrections.
-- Editable and deletable corrections, scoped to the site/domain and field context.
+- Editable and deletable corrections keyed by exact field label. Older site-specific
+  corrections keep their original domain.
 - Google Forms, Microsoft Forms, and supported standard HTML controls, verified in Edge and Firefox.
 - Local profile import/export and a delete-all-data control.
 - Simple, high-contrast monochrome UI with understandable status text and keyboard-accessible controls.

@@ -40,8 +40,8 @@ and only when there is exactly one sensible match.
 
 - **Profile-based filling.** Save your details once in the options page; FormPilot fills
   matching fields whenever you ask it to.
-- **Learned corrections.** When you correct a field FormPilot got wrong, it remembers that
-  correction for that site and uses it next time.
+- **Learned corrections.** When you correct a field, FormPilot can reuse the answer on
+  fields with the same label. Older corrections tied to a site stay scoped to that site.
 - **Honest results.** The popup reports what was filled, skipped and failed, and why —
   per field.
 - **Privacy and data controls.** Export a backup, import one, or delete everything stored
@@ -98,7 +98,7 @@ rather than a rewrite.
 
 1. Open the options page (click the toolbar icon, then **Profile & settings**) and fill
    in the details you want FormPilot to use.
-2. Press **Save profile**. The data is written to this browser only.
+2. Your entries save automatically to this browser. Look for **Saved to this browser**.
 3. Open the form you want to fill and click the FormPilot toolbar icon.
 4. The popup tells you what it found: ready to fill, nothing to fill, no supported fields,
    or a page it cannot touch.
@@ -109,7 +109,8 @@ rather than a rewrite.
 
 For each field, in order:
 
-1. **Learned corrections** — did you correct this label on this site before?
+1. **Learned corrections** — is there a saved answer for this exact label? Older entries
+   tied to the current site take priority over shared corrections.
 2. **Field signatures** — known element names used by applicant tracking systems.
 3. **Exact label match** — the label matches a profile key directly.
 4. **Keyword and alias maps** — reviewed variants such as `F` → `Female` or `US` →
@@ -154,6 +155,9 @@ node extension/test/run_logic_tests.js
 # Storage tests
 node extension/test/run_storage_tests.js
 
+# Background frame and correction tests
+node extension/test/run_background_tests.js
+
 # DOM integration tests (needs a static server on port 8899)
 python -m http.server 8899
 node extension/test/run_dom_tests.js 'http://127.0.0.1:8899/extension/test/test_runner.html?autorun=1'
@@ -166,6 +170,9 @@ node scripts/generate-icons.js
 
 # Build both store packages into dist/
 node scripts/package.js
+
+# Build only the Edge store package
+node scripts/package.js --edge
 
 # Lint the Firefox package (requires Node and network access)
 npx web-ext lint --source-dir dist/staging/firefox

@@ -24,6 +24,23 @@
 
   const opts = (...texts) => texts.map(t => ({ value: t, text: t, disabled: false }));
 
+  group('form platform');
+  check('current Microsoft Forms host', detectFormPlatform({
+    hostname: 'forms.cloud.microsoft', pathname: '/Pages/ResponsePage.aspx'
+  }), 'ms-forms');
+  check('legacy Microsoft Forms host', detectFormPlatform({
+    hostname: 'forms.office.com', pathname: '/Pages/ResponsePage.aspx'
+  }), 'ms-forms');
+  check('Google Forms response path', detectFormPlatform({
+    hostname: 'docs.google.com', pathname: '/forms/d/e/example/viewform'
+  }), 'google-forms');
+  check('other Google Docs pages use the generic adapter', detectFormPlatform({
+    hostname: 'docs.google.com', pathname: '/document/d/example/edit'
+  }), 'generic');
+  check('a lookalike host uses the generic adapter', detectFormPlatform({
+    hostname: 'forms.office.com.example.test', pathname: '/Pages/ResponsePage.aspx'
+  }), 'generic');
+
   // ══════════════ Label normalization ══════════════
   group('label utils');
 

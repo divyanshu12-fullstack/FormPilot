@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', async () => {
+  const api = globalThis.browser || globalThis.chrome;
   const profileForm = document.getElementById('profile-form');
   const profileStatus = document.getElementById('profile-status');
   const learnedBadge = document.getElementById('learned-count-badge');
@@ -9,6 +10,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const learnedStatus = document.getElementById('learned-status-msg');
   const clearAllLearnedBtn = document.getElementById('clear-all-learned-btn');
   const dataStatus = document.getElementById('data-status-msg');
+  const pendingFields = new Map();
+  let profileGeneration = null;
+  let saveTimer;
+  let statusTimer;
+  let activeSave;
 
   function showStatus(element, message, type = '') {
     if (!element) return;
@@ -17,11 +23,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function loadProfile() {
-    const profile = await FormPilotStore.loadProfile();
-    for (const [key, value] of Object.entries(profile)) {
-      const field = profileForm.elements.namedItem(key);
-      if (!field || value === null || value === undefined) continue;
-      field.value = Array.isArray(value) ? value.join(', ') : String(value);
+    const { profile, generation } = await FormPilotStore.loadProfileState();
+    if (generation !== profileGeneration) {
+      clearTimeout(saveTimer);
+      clearTimeout(statusTimer);
+      pendingFields.clear();
+      profileGeneration = generation;
+      showStatus(profileStatus, '');
+    }
+    for (const field of profileForm.elements) {
+      if (!field.name || pendingFields.has(field.name)) continue;
+      const value = profile[field.name];
+      field.value = Array.isArray(value) ? value.join(', ') : String(value ?? '');
     }
   }
 
@@ -52,18 +65,42 @@ document.addEventListener('DOMContentLoaded', async () => {
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function setActiveRail(id) {
-    railLinks.forEach(link => link.classList.toggle('active', link.dataset.rail === id));
+    for (const link of railLinks) {
+      const active = link.dataset.rail === id;
+      link.classList.toggle('active', active);
+      if (active) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    }
   }
 
-  if (railSections.length && 'IntersectionObserver' in window) {
-    const observer = new IntersectionObserver(entries => {
-      const visible = entries
-        .filter(entry => entry.isIntersecting)
-        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-      if (visible.length) setActiveRail(visible[0].target.id);
-    }, { rootMargin: '-76px 0px -55% 0px', threshold: 0 });
-    railSections.forEach(section => observer.observe(section));
+  const header = document.querySelector('.app-header');
+  const sectionRail = document.querySelector('.section-rail');
+  const stickyRail = window.matchMedia('(max-width: 1040px)');
+  let sectionObserver;
+  let previousOffset;
+
+  function updateNavigationOffsets() {
+    const headerHeight = Math.ceil(header.getBoundingClientRect().height);
+    const railHeight = stickyRail.matches ? Math.ceil(sectionRail.getBoundingClientRect().height) : 0;
+    const offset = headerHeight + railHeight + 18;
+    document.documentElement.style.setProperty('--settings-header-height', headerHeight + 'px');
+    document.documentElement.style.setProperty('--settings-scroll-offset', offset + 'px');
+    if (offset === previousOffset) return;
+    previousOffset = offset;
+    sectionObserver?.disconnect();
+    sectionObserver = new IntersectionObserver(entries => {
+      const first = entries.filter(entry => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (first) setActiveRail(first.target.id);
+    }, { rootMargin: '-' + offset + 'px 0px -55% 0px' });
+    railSections.forEach(section => sectionObserver.observe(section));
   }
+
+  const navigationResize = new ResizeObserver(updateNavigationOffsets);
+  navigationResize.observe(header);
+  navigationResize.observe(sectionRail);
+  stickyRail.addEventListener('change', updateNavigationOffsets);
+  updateNavigationOffsets();
 
   railLinks.forEach(link => link.addEventListener('click', event => {
     event.preventDefault();
@@ -84,49 +121,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Profile persistence — auto-save as you type, flushed when the tab closes.
-  let profileDirty = false;
-  let saveTimer = null;
-
+  // Save only fields edited in this tab.
   function showSavedStatus() {
+    clearTimeout(statusTimer);
     showStatus(profileStatus, 'Saved to this browser.', 'success');
-    setTimeout(() => showStatus(profileStatus, ''), 2500);
+    statusTimer = setTimeout(() => showStatus(profileStatus, ''), 2500);
   }
 
-  function collectProfileValues() {
-    const values = Object.fromEntries(new FormData(profileForm).entries());
-    for (const [key, raw] of Object.entries(values)) {
-      const field = profileForm.elements.namedItem(key);
-      if (raw === '') {
-        values[key] = null;
-      } else if (field && field.type === 'number') {
-        const number = Number(raw);
-        values[key] = Number.isFinite(number) ? number : null;
-      } else if (key === 'skills' || key === 'languages') {
-        values[key] = String(raw).split(/[,;\n|]/).map(item => item.trim()).filter(Boolean);
-      }
+  function profileValue(field) {
+    const { name, value } = field;
+    if (value === '') return null;
+    if (field.type === 'number') return Number.isFinite(field.valueAsNumber) ? field.valueAsNumber : null;
+    if (name === 'skills' || name === 'languages') {
+      return value.split(/[,;\n|]/).map(item => item.trim()).filter(Boolean);
     }
-    return values;
+    return value;
   }
 
   function saveNow() {
-    profileDirty = false;
-    return FormPilotStore.saveProfile(collectProfileValues())
-      .then(() => {
-        showSavedStatus();
+    clearTimeout(saveTimer);
+    if (activeSave) return activeSave.then(saved => saved && saveNow());
+    if (!pendingFields.size) return Promise.resolve(true);
+
+    const savedFields = new Map(pendingFields);
+    const values = Object.fromEntries(Array.from(savedFields, ([name, edit]) => [name, edit.value]));
+    const generation = profileGeneration;
+    activeSave = FormPilotStore.saveProfileChanges(values, generation)
+      .then(async saved => {
+        if (!saved) {
+          await loadProfile();
+          return false;
+        }
+        for (const [name, edit] of savedFields) {
+          if (pendingFields.get(name) === edit) pendingFields.delete(name);
+        }
+        if (profileGeneration === generation && !pendingFields.size) showSavedStatus();
+        return true;
       })
-      .catch(() => showStatus(profileStatus, 'Could not save profile. Try again.', 'error'));
+      .catch(() => {
+        showStatus(profileStatus, 'Could not save profile. Try again.', 'error');
+        return false;
+      })
+      .finally(() => { activeSave = undefined; });
+    return activeSave;
   }
 
-  function scheduleSave() {
-    profileDirty = true;
+  function markDirty(event) {
+    const field = event.target;
+    if (!field.name || field.form !== profileForm) return;
+    pendingFields.set(field.name, { value: profileValue(field) });
+    clearTimeout(statusTimer);
     showStatus(profileStatus, 'Saving…', 'pending');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 500);
-  }
-
-  function markDirty() {
-    scheduleSave();
   }
 
   profileForm.addEventListener('input', markDirty);
@@ -136,9 +183,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Flush any pending save when the tab is hidden / closed.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      clearTimeout(saveTimer);
-      saveNow().catch(() => {});
+    if (document.hidden && pendingFields.size) void saveNow();
+  });
+  api.storage.onChanged?.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes[FormPilotStore.PROFILE_KEY] || changes[FormPilotStore.GENERATION_KEY]) {
+      loadProfile().catch(() => showStatus(profileStatus, 'Could not load profile data.', 'error'));
+    }
+    if (changes[FormPilotStore.CORRECTIONS_KEY] && document.getElementById('tab-learned').classList.contains('active')) {
+      loadLearnedData();
     }
   });
 
@@ -160,6 +213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const filter = (learnedSearch.value || '').trim().toLowerCase();
     const entries = learnedData.filter(item => !filter
       || item.field_label.toLowerCase().includes(filter)
+      || item.domain.toLowerCase().includes(filter)
       || item.corrected_value.toLowerCase().includes(filter));
 
     learnedBadge.textContent = `${learnedData.length} correction${learnedData.length === 1 ? '' : 's'}`;
@@ -182,7 +236,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     for (const item of entries) {
       const row = document.createElement('tr');
-      row.appendChild(textCell(item.field_label));
+      const labelCell = textCell(item.field_label);
+      if (item.domain) {
+        const site = document.createElement('small');
+        site.className = 'correction-site';
+        site.textContent = item.domain;
+        labelCell.appendChild(site);
+      }
+      row.appendChild(labelCell);
 
       const valueCell = document.createElement('td');
       valueCell.className = 'value-container';
@@ -253,7 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const input = cell.querySelector('input');
       const updatedValue = input ? input.value.trim() : '';
       if (!updatedValue) return;
-      FormPilotStore.updateCorrection(item.field_label, updatedValue)
+      FormPilotStore.updateCorrection(item.domain, item.field_label, updatedValue)
         .then(loadLearnedData)
         .then(() => showStatus(learnedStatus, 'Correction updated.', 'success'))
         .catch(() => {
@@ -288,7 +349,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function deleteCorrection(item) {
     if (!confirm(`Delete the learned value for “${item.field_label}”?`)) return;
     try {
-      await FormPilotStore.deleteCorrection(item.field_label);
+      await FormPilotStore.deleteCorrection(item.domain, item.field_label);
       await loadLearnedData();
       showStatus(learnedStatus, 'Correction deleted.', 'success');
     } catch (error) {
@@ -308,9 +369,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Explicit local data export and deletion
+  // Explicit local data export, restore, and deletion
   document.getElementById('export-data-btn').addEventListener('click', async () => {
     try {
+      if (!await saveNow()) throw new Error('Profile could not be saved');
       const data = await FormPilotStore.exportData();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -327,12 +389,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  const importInput = document.getElementById('import-data-file');
+  const importButton = document.getElementById('import-data-btn');
+  importButton.addEventListener('click', () => importInput.click());
+  importInput.addEventListener('change', async () => {
+    const [file] = importInput.files;
+    importInput.value = '';
+    if (!file) return;
+    if (!confirm('Restore this backup and replace your current profile and learned corrections?')) return;
+    importButton.disabled = true;
+    try {
+      const backup = JSON.parse(await file.text());
+      await FormPilotStore.importData(backup);
+      await loadProfile();
+      await loadLearnedData();
+      showStatus(dataStatus, 'Backup restored.', 'success');
+    } catch (error) {
+      const invalidFile = error instanceof SyntaxError || error instanceof TypeError;
+      showStatus(dataStatus, invalidFile ? 'Choose a valid FormPilot backup.' : 'Could not restore the backup.', 'error');
+    } finally {
+      importButton.disabled = false;
+    }
+  });
+
   document.getElementById('delete-data-btn').addEventListener('click', async () => {
     if (!confirm('Delete the profile and all learned corrections from this browser? This cannot be undone.')) return;
     try {
       await FormPilotStore.clearUserData();
-      profileForm.reset();
-      showStatus(profileStatus, '');
+      await loadProfile();
       await loadLearnedData();
       showStatus(dataStatus, 'Profile and learned data deleted.', 'success');
     } catch (error) {

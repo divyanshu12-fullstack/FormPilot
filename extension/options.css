@@ -179,7 +179,7 @@
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
-  scroll-margin-top: 78px;
+  scroll-margin-top: var(--settings-scroll-offset, 78px);
 }
 
 .card-head { margin-bottom: 18px; }
@@ -291,6 +291,12 @@
 .actions-col { text-align: right; }
 
 .value-container { word-break: break-word; color: var(--text); }
+.correction-site {
+  display: block;
+  color: var(--text-subtle);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
 .actions-cell { text-align: right; white-space: nowrap; }
 .action-group { display: inline-flex; justify-content: flex-end; gap: 6px; }
 
@@ -480,7 +486,7 @@
 
 .data-buttons {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: flex-start;
   gap: 8px;
 }
@@ -502,7 +508,7 @@
 
   .section-rail {
     position: sticky;
-    top: 58px;
+    top: var(--settings-header-height, 59px);
     z-index: 20;
     margin: 0 -24px;
     padding: 10px 24px;

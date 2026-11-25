@@ -766,8 +766,8 @@
           <div class="page-intro-text">
             <h1>Learned corrections</h1>
             <p class="page-subtitle">
-              When you correct a field FormPilot got wrong, it remembers that
-              correction and reuses it across every form.
+              FormPilot remembers corrections and can reuse them on fields
+              with the same label. Corrections tied to a site show its hostname.
             </p>
           </div>
         </div>
@@ -930,7 +930,7 @@
           <div class="pref-info">
             <h3>Manage your data</h3>
             <p>
-              Export a backup or delete everything stored in this browser.
+              Export or restore a backup, or delete everything stored in this browser.
             </p>
           </div>
           <div class="data-buttons">
@@ -941,6 +941,10 @@
             >
               Export data
             </button>
+            <button type="button" class="btn btn-secondary" id="import-data-btn">
+              Restore backup
+            </button>
+            <input type="file" id="import-data-file" accept=".json,application/json" hidden />
             <button type="button" class="btn btn-danger" id="delete-data-btn">
               Delete all data
             </button>
